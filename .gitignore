@@ -1,66 +1,31 @@
-# Python
+# Python 运行缓存 
 __pycache__/
 *.py[cod]
 *$py.class
-*.so
-.Python
-build/
-develop-eggs/
-dist/
-downloads/
-eggs/
-.eggs/
-lib/
-lib64/
-parts/
-sdist/
-var/
-wheels/
-*.egg-info/
-.installed.cfg
-*.egg
-MANIFEST
 
-# Virtual environments
-venv/
-env/
-ENV/
+# Claude 相关配置文件 (根据你的要求隐藏) 
+.claude/
+CLAUDE.md
 
-# IDE
-.vscode/
-.idea/
-*.swp
-*.swo
-*~
-
-# OS
-.DS_Store
-.DS_Store?
-._*
-.Spotlight-V100
-.Trashes
-ehthumbs.db
-Thumbs.db
-
-# Claude
-.claude/settings.local.json
-
-# Data and models
+# 数据与模型存储 (排除运行生成的存储数据) 
+# 忽略整个 data 文件夹下的动态生成内容
 data/vector_db/
 data/graph_db/storage/
+# 如果 models 文件夹下也是运行生成的模型，建议也忽略
 models/
-./models
 
-# Cache
-.cache/
+# 日志与缓存 
 *.log
+.cache/
 
-# Environment files
+# 虚拟环境 
+venv/
+env/
+
+# 操作系统与 IDE 
+.DS_Store
+.vscode/
+.idea/
+
+# 敏感环境配置文件 
 .env
-!.env.example
-
-# Jupyter notebook
-.ipynb_checkpoints
-
-# pyenv
-.python-version
