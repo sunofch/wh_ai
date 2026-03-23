@@ -276,8 +276,9 @@ graph_rag = get_graph_rag_instance()
 if graph_rag:
     # 图谱检索
     results = graph_rag.retrieve("电机型号")
-    stats = graph_rag.get_graph_stats()
-    print(f"节点数: {stats['node_count']}")
+    for result in results:
+        print(f"内容: {result.text}")
+        print(f"评分: {result.score}")
 ```
 
 ## ⚠️ 重要说明

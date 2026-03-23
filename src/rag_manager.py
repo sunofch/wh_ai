@@ -117,8 +117,6 @@ class UnifiedRAGManager:
 
             if self.mode == 'graph' and isinstance(retriever, GraphRAGRetriever):
                 # GraphRAG状态
-                if hasattr(retriever, 'get_graph_stats'):
-                    status['graph_stats'] = retriever.get_graph_stats()
                 status['type'] = 'graph'
 
                 # 添加GraphRAG特有的状态信息

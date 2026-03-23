@@ -297,35 +297,6 @@ class GraphRAGRetriever:
             logger.error(f"图谱索引重建失败: {e}")
             return False
 
-    def get_graph_stats(self) -> Dict[str, Any]:
-        """获取图谱统计信息"""
-        if not self._initialized:
-            return {}
-
-        try:
-            triplets = self.index.property_graph_store.get_triplets()
-
-            node_ids = set()
-            for triplet in triplets:
-                node_ids.add(triplet.subject)
-                node_ids.add(triplet.object)
-
-            node_count = len(node_ids)
-            relation_count = len(triplets)
-
-            return {
-                'node_count': node_count,
-                'relation_count': relation_count,
-                'graph_store_path': str(config.paths.graph_db),
-            }
-        except Exception as e:
-            logger.warning(f"获取图谱统计信息失败: {e}")
-            return {
-                'node_count': 0,
-                'relation_count': 0,
-                'graph_store_path': str(config.paths.graph_db),
-            }
-
     def is_enabled(self) -> bool:
         """检查 GraphRAG 是否启用"""
         return config.rag.graph_enabled and self._initialized
@@ -335,7 +306,6 @@ class GraphRAGRetriever:
         status = {
             'enabled': config.rag.graph_enabled,
             'initialized': self._initialized,
-            'graph_stats': self.get_graph_stats() if self._initialized else {}
         }
 
         if self._initialized:

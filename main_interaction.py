@@ -312,10 +312,6 @@ def handle_rag_status(parser: InstructionParser) -> None:
 
         if rag_type == 'graph':
             # GraphRAG 特定信息
-            graph_stats = status.get('graph_stats', {})
-            if graph_stats:
-                print(f"图谱节点数: {graph_stats.get('node_count', 0)}")
-                print(f"图谱关系数: {graph_stats.get('relation_count', 0)}")
             print(f"提取器类型: {status.get('extractor_type', 'N/A')}")
             print(f"最大三元组数: {status.get('max_triplets_per_chunk', 'N/A')}")
         else:
@@ -349,45 +345,12 @@ def handle_rag_rebuild(parser: InstructionParser) -> None:
     else:
         logger.error(">>> 索引重建失败")
 
-def handle_graph_stats(parser: InstructionParser) -> None:
-    """处理GraphRAG统计命令"""
-    if not HAS_RAG or not parser.rag_manager:
-        print("\nGraphRAG不可用")
-        return
-
-    status = parser.get_rag_status()
-    if status.get('mode') != 'graph':
-        print("\n当前不是GraphRAG模式")
-        return
-
-    print("\n" + "=" * 40)
-    print("GraphRAG 统计信息")
-    print("=" * 40)
-
-    if status.get('graph_stats'):
-        stats = status['graph_stats']
-        print(f"图谱节点数: {stats.get('node_count', 0)}")
-        print(f"图谱关系数: {stats.get('relation_count', 0)}")
-        if stats.get('build_time'):
-            print(f"构建时间: {stats['build_time']}")
-
-        # 显示提取器信息
-        print(f"\n提取器配置:")
-        print(f"类型: {status.get('extractor_type', 'N/A')}")
-        print(f"最大三元组/块: {status.get('max_triplets_per_chunk', 'N/A')}")
-        print(f"实体类型: {status.get('entity_hints', 'N/A')}")
-    else:
-        print("暂无统计数据")
-
-    print("=" * 40)
-    
 # RAG 命令处理调度表
 RAG_COMMAND_HANDLERS: dict[str, Callable[[InstructionParser], None]] = {
     "rag:status": handle_rag_status,
     "rag:enable": lambda p: handle_rag_enable(p, True),
     "rag:disable": lambda p: handle_rag_enable(p, False),
     "rag:rebuild": handle_rag_rebuild,
-    "rag:graph": handle_graph_stats,  # 新增GraphRAG统计命令
 }
 
 

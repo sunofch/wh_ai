@@ -132,7 +132,6 @@ class UnifiedRAGCLI:
             return
 
         status = self.graph_rag.get_status()
-        graph_stats = status.get('graph_stats', {})
 
         print("\n[系统状态]")
         print(f"  嵌入模型: {status.get('embedding_model', 'N/A')}")
@@ -140,13 +139,8 @@ class UnifiedRAGCLI:
         print(f"  子检索器: {', '.join(status.get('sub_retrievers', []))}")
         print(f"  Top-K: {status.get('top_k', 'N/A')}")
 
-        print(f"\n[图谱统计]")
-        print(f"  节点数: {graph_stats.get('node_count', 0)}")
-        print(f"  关系数: {graph_stats.get('relation_count', 0)}")
-
         print(f"\n[路径]")
         print(f"  知识库: {status.get('knowledge_base_path', 'N/A')}")
-        print(f"  图谱存储: {graph_stats.get('graph_store_path', 'N/A')}")
 
     def run_rag_mode(self):
         """运行传统 RAG 模式"""
