@@ -14,11 +14,11 @@ from src.config import config
 class PortInstruction(BaseModel):
     part_name: Optional[str] = Field(description="备件名称", default=None)
     quantity: Optional[int] = Field(description="所需数量", default=None)
-    urgency: str = Field(description="紧急程度：低、中、高", default="中")
-    location: Optional[str] = Field(description="位置描述", default=None)
+    model: Optional[str] = Field(description="型号", default=None)
+    installation_equipment: Optional[str] = Field(description="安装设备", default=None)
+    location: Optional[str] = Field(description="地点", default=None)
     description: Optional[str] = Field(description="详细描述", default=None)
     action_required: Optional[str] = Field(description="行动：更换、维修、检查等", default=None)
-    confidence: float = Field(description="置信度 0-1", default=None)
     
     def to_dict(self) -> Dict[str, Any]:
         return self.model_dump()
@@ -66,12 +66,6 @@ class PortInstructionParser:
         """
         规则解析兜底
         """
-        urgency = config.parser.default_urgency
-
-        # 检测紧急关键词
-        if any(w in text for w in ["紧急", "马上", "urgent", "着火", "停机"]):
-            urgency = "高"
-
         # 提取数量
         quantity = None
         qty_match = re.search(r'(\d+)\s*(个|件|套|台|只|把|箱|根)', text)
@@ -85,7 +79,5 @@ class PortInstructionParser:
         return PortInstruction(
             part_name=fallback_part_name,
             quantity=quantity,
-            urgency=urgency,
-            description=f"{fallback_desc_prefix}: {text}",
-            confidence=0.1
+            description=f"{fallback_desc_prefix}: {text}"
         )

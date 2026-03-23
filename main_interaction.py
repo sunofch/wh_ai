@@ -123,7 +123,7 @@ class InstructionParser:
         context_text = context_text.strip()
 
         if not context_text and image is None:
-            return PortInstruction(description="无有效输入", confidence=0.0)
+            return PortInstruction(description="无有效输入")
 
         # 3. VLM 推理
         if image:

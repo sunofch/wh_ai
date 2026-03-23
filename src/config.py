@@ -37,8 +37,6 @@ class VLMConfig(BaseAppConfig):
 
 class ParserConfig(BaseAppConfig):
     """解析器配置"""
-    confidence_threshold: float = Field(default=0.9, alias="PARSER_CONFIDENCE_THRESHOLD")
-    default_urgency: str = Field(default="中", alias="PARSER_DEFAULT_URGENCY")
     fallback_part_name: str = Field(default="未知备件", alias="PARSER_FALLBACK_PART_NAME")
     fallback_description_prefix: str = Field(
         default="自动解析失败，原始信息",
