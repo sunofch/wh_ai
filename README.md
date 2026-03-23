@@ -20,13 +20,17 @@
 ### 智能解析引擎
 - **ASR语音识别**：基于OpenAI Whisper large-v3-turbo，支持中文
 - **VLM视觉理解**：使用Qwen2-VL-2B-Instruct处理图像和文本
+- **智能提示优化**：系统提示词包含型号与缩写识别、严格参考信息等优化
 - **结构化输出**：解析为标准化的港口指令格式（Pydantic模型）
+- **规则降级**：解析失败时自动降级到基于正则的规则提取
 
 ### RAG知识增强
 - **传统RAG**：基于BGE-M3向量和BM25混合检索
 - **GraphRAG**：知识图谱关系推理，支持多跳检索
 - **动态切换**：运行时可启用/禁用RAG功能
 - **智能分块**：语义分割和Markdown专用分块
+- **统一管理**：UnifiedRAGManager提供单一入口管理两种RAG模式
+- **上下文格式化**：支持多种参考格式（【参考1】、带评分等）
 
 ### 高级功能
 - **重排序**：使用BGE-reranker-v2-m3优化结果
@@ -39,15 +43,11 @@
 ```
 输入 (Audio/Text/Image)
   ↓
-ASR模块 → 语音转文字（可选）
+ASR模块 (Whisper) → 语音转文字（可选）
   ↓
-上下文构建器 → 整合所有输入
+VLM模块 (Qwen2-VL) + RAG上下文 → 结构化JSON生成
   ↓
-RAG模块 → 检索相关知识（可选）
-  ↓
-VLM模块 → 生成结构化指令
-  ↓
-解析器 → 提取Pydantic模型
+解析器 (Pydantic) → 验证并提取PortInstruction模型
   ↓
 PortInstruction结构化输出
 ```
@@ -161,13 +161,22 @@ python main_rag.py
 {
   "part_name": "传送带电机",
   "quantity": 5,
-  "urgency": "高",
-  "location": "3号传送带",
+  "model": "YVF2-132S-4",
+  "installation_equipment": "3号传送带",
+  "location": "港区B区",
   "description": "需要更换电机",
-  "action_required": "更换",
-  "confidence": 0.95
+  "action_required": "更换"
 }
 ```
+
+**字段说明**：
+- `part_name`: 备件名称（中文名称）
+- `quantity`: 所需数量
+- `model`: 型号规格
+- `installation_equipment`: 安装设备名称
+- `location`: 存放或安装位置
+- `description`: 详细描述
+- `action_required`: 所需操作（更换/维修/检查等）
 
 ## ⚙️ 配置说明
 
@@ -196,10 +205,10 @@ GRAPH_RAG_DEEPSEEK_MODEL=deepseek-chat
 
 ### 关键配置项
 
-- **置信度阈值**：解析成功的最低置信度（默认0.9）
-- **紧急程度**：默认"中"，自动检测紧急关键词
-- **备件名称**：解析失败时的默认名称
+- **备件名称**：解析失败时的默认名称（config.parser.fallback_part_name）
+- **描述前缀**：规则解析时的描述前缀（config.parser.fallback_description_prefix）
 - **检索模式**：fixed/adaptive/hybrid（推荐hybrid）
+- **RAG上下文格式**：支持多种参考格式（默认【参考1】格式）
 
 ## 📂 项目结构
 
@@ -235,7 +244,7 @@ from src.asr import get_asr_instance
 from src.vlm import get_vlm_instance
 from src.parser import PortInstructionParser, PortInstruction
 
-# 创建解析器
+# 创建解析器（模型使用LRU缓存自动管理）
 asr = get_asr_instance()
 vlm = get_vlm_instance()
 parser = PortInstructionParser()
@@ -243,42 +252,76 @@ parser = PortInstructionParser()
 # 音频转文字
 audio_text = asr.transcribe("audio.wav")
 
-# 多模态解析
+# 获取格式化指令（Schema）
+format_instructions = parser.get_format_instructions()
+
+# 多模态解析（VLM + RAG）
+vlm_result = vlm.extract_structured_info(
+    text=audio_text,
+    format_instructions=format_instructions,
+    image=None,  # 可选图片路径
+    enable_rag=True  # 启用RAG增强
+)
+
+# 解析输出
 result = parser.parse_output(
-    vlm_result={"content": "..."},
+    vlm_result=vlm_result,
     raw_text=audio_text
 )
 print(result.to_dict())
+# 输出示例：{
+#   "part_name": "传送带电机",
+#   "quantity": 5,
+#   "model": "YVF2-132S-4",
+#   ...
+# }
 ```
 
 ### RAG集成
 
 ```python
-from src.rag import get_rag_instance
+from src.rag_manager import initialize_rag_system, get_unified_rag_manager
 
-# 初始化RAG
-rag = get_rag_instance()
-if rag:
+# 初始化RAG系统（选择模式）
+success = initialize_rag_system(mode='graph')  # 或 'traditional'
+if success:
+    # 获取统一RAG管理器
+    rag_manager = get_unified_rag_manager()
+
     # 检索相关知识
-    results = rag.retrieve("传送带维修")
-    for result in results:
-        print(f"相似度: {result['score']:.3f}")
-        print(f"内容: {result['text']}")
+    results = rag_manager.retrieve("传送带维修")
+
+    # 格式化上下文（自动适配格式）
+    context = rag_manager.format_context(results)
+
+    # 查看状态
+    status = rag_manager.get_status()
+    print(f"模式: {status['mode']}, 可用: {status['available']}")
+
+    # 动态切换模式
+    rag_manager.initialize(mode='traditional')
 ```
 
 ### GraphRAG使用
 
 ```python
-from src.graph_rag import get_graph_rag_instance
+from src.rag_manager import initialize_rag_system, get_unified_rag_manager
 
-# 初始化GraphRAG
-graph_rag = get_graph_rag_instance()
-if graph_rag:
-    # 图谱检索
-    results = graph_rag.retrieve("电机型号")
-    for result in results:
-        print(f"内容: {result.text}")
-        print(f"评分: {result.score}")
+# 使用统一管理器初始化GraphRAG
+success = initialize_rag_system(mode='graph')
+if success:
+    rag_manager = get_unified_rag_manager()
+
+    # 检查是否为GraphRAG模式
+    if rag_manager.is_graph_mode:
+        # 执行检索
+        results = rag_manager.retrieve("电机型号")
+
+        # 格式化上下文
+        context = rag_manager.format_context(results)
+
+        # 清除缓存（GraphRAG特有功能）
+        rag_manager.clear_cache()
 ```
 
 ## ⚠️ 重要说明
@@ -311,32 +354,39 @@ GRAPH_RAG_DEEPSEEK_API_KEY=your-key-here
 
 1. **端到端处理**：从原始输入到结构化输出
 2. **多模态融合**：同时处理音频、文本、图像
-3. **知识增强**：RAG提供领域知识支持
-4. **容错性强**：解析失败时自动降级
-5. **易于扩展**：模块化设计，方便添加新功能
+3. **知识增强**：双模式RAG（传统向量+知识图谱）
+4. **统一管理**：UnifiedRAGManager单一入口管理RAG
+5. **智能降级**：解析失败时自动降级到规则提取
+6. **易于扩展**：模块化设计，方便添加新功能
 
 ## 🔍 故障排查
 
 ### 常见问题
 
 1. **模型加载失败**
-   - 检查网络连接
-   - 确认磁盘空间足够
-   - 尝试使用CPU模式
+   - 检查网络连接和磁盘空间（BGE-M3: ~2.3GB, Qwen2-VL: ~5GB）
+   - 尝试使用CPU模式：设置 `ASR_DEVICE=cpu` 和 `VLM_DEVICE=cpu`
+   - 验证PyTorch版本兼容性（推荐CUDA 12.4）
 
 2. **RAG检索失败**
-   - 确认知识库目录存在且有文档
-   - 检查embedding模型是否正确下载
-   - 尝试重建索引
+   - 确认 `data/knowledge_base/` 目录存在且包含.md文档
+   - 检查BGE-M3模型是否正确下载
+   - 尝试运行 `rag:rebuild` 重建索引
+   - GraphRAG需确认 `GRAPH_RAG_DEEPSEEK_API_KEY` 配置正确
 
 3. **录音功能异常**
-   - 安装sounddevice：`pip install sounddevice`
-   - 检查麦克风权限
+   - 安装依赖：`pip install sounddevice soundfile numpy`
+   - 检查系统麦克风权限
+   - 可降级为文件上传方式
 
-4. **图片识别问题**
-   - 确认图片格式支持
-   - 检查图片路径正确
-   - 提供清晰的图片
+4. **编码问题（GBK错误）**
+   - 使用UTF-8模式运行：`python -X utf8 main_interaction.py`
+   - 检查终端编码设置
+
+5. **JSON解析失败**
+   - 系统会自动使用 `json_repair` 修复常见格式问题
+   - 失败时自动降级到规则解析
+   - 可检查VLM输出的原始响应进行调试
 
 ## 🤝 贡献指南
 

@@ -226,14 +226,13 @@ class UnifiedRAGManager:
             elif hasattr(retriever, 'get_formatted_context'):
                 return retriever.get_formatted_context(results)
             else:
-                # 默认格式化
-                context = "相关文档信息：\n"
-                for i, result in enumerate(results, 1):
+                # 默认格式化（使用【背景1】格式）
+                context_parts = []
+                for idx, result in enumerate(results, start=1):
                     if isinstance(result, dict):
-                        score = result.get('score', 0)
                         text = result.get('text', '')
-                        context += f"{i}. [{score:.3f}] {text}\n"
-                return context
+                        context_parts.append(f"【参考{idx}】\n{text}")
+                return "\n============================================================\n".join(context_parts)
         except Exception as e:
             logger.error(f"格式化上下文失败: {e}")
             self.last_error = str(e)
