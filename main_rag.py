@@ -107,7 +107,6 @@ class UnifiedRAGCLI:
             return
 
         status = self.rag.get_status()
-        config = self.rag.config
 
         print("\n[系统状态]")
         print(f"  嵌入模型: {status['embedding_model']}")
@@ -346,7 +345,7 @@ class UnifiedRAGCLI:
         """重建 RAG 索引"""
         print("\n[重建索引]")
         print("正在重新构建向量索引...")
-        print("提示: 修改 config.ini 后重建索引可应用新配置\n")
+        print("提示: 修改 .env 后重建索引可应用新配置\n")
 
         success = self.rag.rebuild_index()
 
@@ -361,7 +360,7 @@ class UnifiedRAGCLI:
         """重建 GraphRAG 索引"""
         print("\n[重建索引]")
         print("正在重新构建知识图谱...")
-        print("提示: 修改 config.ini 后重建索引可应用新配置\n")
+        print("提示: 修改 .env 后重建索引可应用新配置\n")
 
         success = self.graph_rag.rebuild_index()
 

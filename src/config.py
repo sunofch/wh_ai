@@ -4,149 +4,152 @@
 从 config.ini 迁移到环境变量配置系统
 """
 from pathlib import Path
-from typing import List
+from typing import List, Union
 
-from pydantic import Field
+from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
-class ASRConfig(BaseSettings):
+class BaseAppConfig(BaseSettings):
+    """应用配置基类，统一配置行为"""
+    model_config = SettingsConfigDict(
+        env_file=str(Path(__file__).parent.parent / ".env"),
+        env_file_encoding="utf-8",
+        case_sensitive=False,
+        populate_by_name=True,
+        extra="allow"
+    )
+
+
+class ASRConfig(BaseAppConfig):
     """ASR 模型配置"""
-    model: str = Field(default="large-v3-turbo", env="ASR_MODEL")
-    device: str = Field(default="auto", env="ASR_DEVICE")
-    language: str = Field(default="zh", env="ASR_LANGUAGE")
-
-    model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8")
+    model: str = Field(default="large-v3-turbo", alias="ASR_MODEL")
+    device: str = Field(default="auto", alias="ASR_DEVICE")
+    language: str = Field(default="zh", alias="ASR_LANGUAGE")
 
 
-class VLMConfig(BaseSettings):
+class VLMConfig(BaseAppConfig):
     """VLM 模型配置"""
-    model: str = Field(default="Qwen/Qwen2-VL-2B-Instruct", env="VLM_MODEL")
-    device: str = Field(default="auto", env="VLM_DEVICE")
-    max_tokens: int = Field(default=512, env="VLM_MAX_TOKENS")
-
-    model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8")
+    model: str = Field(default="Qwen/Qwen2-VL-2B-Instruct", alias="VLM_MODEL")
+    device: str = Field(default="auto", alias="VLM_DEVICE")
+    max_tokens: int = Field(default=512, alias="VLM_MAX_TOKENS")
 
 
-class ParserConfig(BaseSettings):
+class ParserConfig(BaseAppConfig):
     """解析器配置"""
-    confidence_threshold: float = Field(default=0.9, env="PARSER_CONFIDENCE_THRESHOLD")
-    default_urgency: str = Field(default="中", env="PARSER_DEFAULT_URGENCY")
-    fallback_part_name: str = Field(default="未知备件", env="PARSER_FALLBACK_PART_NAME")
+    confidence_threshold: float = Field(default=0.9, alias="PARSER_CONFIDENCE_THRESHOLD")
+    default_urgency: str = Field(default="中", alias="PARSER_DEFAULT_URGENCY")
+    fallback_part_name: str = Field(default="未知备件", alias="PARSER_FALLBACK_PART_NAME")
     fallback_description_prefix: str = Field(
         default="自动解析失败，原始信息",
-        env="PARSER_FALLBACK_DESCRIPTION_PREFIX"
+        alias="PARSER_FALLBACK_DESCRIPTION_PREFIX"
     )
 
-    model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8")
 
-
-class PathsConfig(BaseSettings):
+class PathsConfig(BaseAppConfig):
     """路径配置"""
-    cache_dir: Path = Field(default=Path("./models"), env="CACHE_DIR")
-    output_dir: Path = Field(default=Path("./output"), env="OUTPUT_DIR")
-    knowledge_base: Path = Field(default=Path("./data/knowledge_base"), env="KNOWLEDGE_BASE_PATH")
-    vector_db: Path = Field(default=Path("./data/vector_db"), env="VECTOR_DB_PATH")
-    graph_db: Path = Field(default=Path("./data/graph_db"), env="GRAPH_DB_PATH")
-
-    model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8")
+    cache_dir: Path = Field(default=Path("./models"), alias="CACHE_DIR")
+    output_dir: Path = Field(default=Path("./output"), alias="OUTPUT_DIR")
+    knowledge_base: Path = Field(default=Path("./data/knowledge_base"), alias="KNOWLEDGE_BASE_PATH")
+    vector_db: Path = Field(default=Path("./data/vector_db"), alias="VECTOR_DB_PATH")
+    graph_db: Path = Field(default=Path("./data/graph_db"), alias="GRAPH_DB_PATH")
 
 
-class RAGConfig(BaseSettings):
+class RAGConfig(BaseAppConfig):
     """RAG 基础配置"""
-    enabled: bool = Field(default=True, env="RAG_ENABLED")
-    graph_enabled: bool = Field(default=True, env="RAG_GRAPH_ENABLED")
-    embedding_model: str = Field(default="BAAI/bge-m3", env="RAG_EMBEDDING_MODEL")
-    device: str = Field(default="auto", env="RAG_DEVICE")
-    top_k: int = Field(default=3, env="RAG_TOP_K")
-
-    model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8")
+    enabled: bool = Field(default=True, alias="RAG_ENABLED")
+    graph_enabled: bool = Field(default=True, alias="RAG_GRAPH_ENABLED")
+    embedding_model: str = Field(default="BAAI/bge-m3", alias="RAG_EMBEDDING_MODEL")
+    device: str = Field(default="auto", alias="RAG_DEVICE")
+    top_k: int = Field(default=3, alias="RAG_TOP_K")
 
 
-class RetrievalConfig(BaseSettings):
+class RetrievalConfig(BaseAppConfig):
     """检索配置"""
-    mode: str = Field(default="hybrid", env="RAG_RETRIEVAL_MODE")
-    threshold_strict: float = Field(default=0.7, env="RAG_RETRIEVAL_THRESHOLD_STRICT")
-    threshold_medium: float = Field(default=0.35, env="RAG_RETRIEVAL_THRESHOLD_MEDIUM")
-    threshold_relaxed: float = Field(default=0.25, env="RAG_RETRIEVAL_THRESHOLD_RELAXED")
-    min_results_expected: int = Field(default=2, env="RAG_RETRIEVAL_MIN_RESULTS_EXPECTED")
-    hybrid_enabled: bool = Field(default=True, env="RAG_RETRIEVAL_HYBRID_ENABLED")
-    fusion_method: str = Field(default="rrf", env="RAG_RETRIEVAL_FUSION_METHOD")
-    vector_weight: float = Field(default=0.7, env="RAG_RETRIEVAL_VECTOR_WEIGHT")
-    keyword_weight: float = Field(default=0.3, env="RAG_RETRIEVAL_KEYWORD_WEIGHT")
-
-    model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8")
+    mode: str = Field(default="hybrid", alias="RAG_RETRIEVAL_MODE")
+    threshold_strict: float = Field(default=0.7, alias="RAG_RETRIEVAL_THRESHOLD_STRICT")
+    threshold_medium: float = Field(default=0.35, alias="RAG_RETRIEVAL_THRESHOLD_MEDIUM")
+    threshold_relaxed: float = Field(default=0.25, alias="RAG_RETRIEVAL_THRESHOLD_RELAXED")
+    min_results_expected: int = Field(default=2, alias="RAG_RETRIEVAL_MIN_RESULTS_EXPECTED")
+    hybrid_enabled: bool = Field(default=True, alias="RAG_RETRIEVAL_HYBRID_ENABLED")
+    fusion_method: str = Field(default="rrf", alias="RAG_RETRIEVAL_FUSION_METHOD")
+    vector_weight: float = Field(default=0.7, alias="RAG_RETRIEVAL_VECTOR_WEIGHT")
+    keyword_weight: float = Field(default=0.3, alias="RAG_RETRIEVAL_KEYWORD_WEIGHT")
 
 
-class RerankConfig(BaseSettings):
+class RerankConfig(BaseAppConfig):
     """重排序配置"""
-    enabled: bool = Field(default=True, env="RAG_RERANK_ENABLED")
-    model: str = Field(default="BAAI/bge-reranker-v2-m3", env="RAG_RERANK_MODEL")
-    rerank_top_k: int = Field(default=10, env="RAG_RERANK_TOP_K")
-    final_top_k: int = Field(default=3, env="RAG_RERANK_FINAL_TOP_K")
-    device: str = Field(default="auto", env="RAG_RERANK_DEVICE")
-
-    model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8")
+    enabled: bool = Field(default=True, alias="RAG_RERANK_ENABLED")
+    model: str = Field(default="BAAI/bge-reranker-v2-m3", alias="RAG_RERANK_MODEL")
+    rerank_top_k: int = Field(default=10, alias="RAG_RERANK_TOP_K")
+    final_top_k: int = Field(default=3, alias="RAG_RERANK_FINAL_TOP_K")
+    device: str = Field(default="auto", alias="RAG_RERANK_DEVICE")
 
 
-class ChunkingConfig(BaseSettings):
+class ChunkingConfig(BaseAppConfig):
     """分块配置"""
-    strategy: str = Field(default="semantic", env="RAG_CHUNKING_STRATEGY")
-    chunk_size: int = Field(default=1024, env="RAG_CHUNKING_CHUNK_SIZE")
-    chunk_overlap: int = Field(default=128, env="RAG_CHUNKING_CHUNK_OVERLAP")
-    semantic_splitter_threshold: float = Field(default=0.6, env="RAG_CHUNKING_SEMANTIC_SPLITTER_THRESHOLD")
-    min_chunk_size: int = Field(default=128, env="RAG_CHUNKING_MIN_CHUNK_SIZE")
-    markdown_chunking_enabled: bool = Field(default=True, env="RAG_CHUNKING_MARKDOWN_ENABLED")
-    markdown_heading_level: int = Field(default=2, env="RAG_CHUNKING_MARKDOWN_HEADING_LEVEL")
-    markdown_preserve_tables: bool = Field(default=True, env="RAG_CHUNKING_MARKDOWN_PRESERVE_TABLES")
-    metadata_include_heading: bool = Field(default=True, env="RAG_CHUNKING_METADATA_INCLUDE_HEADING")
-    metadata_include_position: bool = Field(default=False, env="RAG_CHUNKING_METADATA_INCLUDE_POSITION")
-
-    model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8")
+    strategy: str = Field(default="semantic", alias="RAG_CHUNKING_STRATEGY")
+    chunk_size: int = Field(default=1024, alias="RAG_CHUNKING_CHUNK_SIZE")
+    chunk_overlap: int = Field(default=128, alias="RAG_CHUNKING_CHUNK_OVERLAP")
+    semantic_splitter_threshold: float = Field(default=0.6, alias="RAG_CHUNKING_SEMANTIC_SPLITTER_THRESHOLD")
+    min_chunk_size: int = Field(default=128, alias="RAG_CHUNKING_MIN_CHUNK_SIZE")
+    markdown_chunking_enabled: bool = Field(default=True, alias="RAG_CHUNKING_MARKDOWN_ENABLED")
+    markdown_heading_level: int = Field(default=2, alias="RAG_CHUNKING_MARKDOWN_HEADING_LEVEL")
+    markdown_preserve_tables: bool = Field(default=True, alias="RAG_CHUNKING_MARKDOWN_PRESERVE_TABLES")
+    metadata_include_heading: bool = Field(default=True, alias="RAG_CHUNKING_METADATA_INCLUDE_HEADING")
+    metadata_include_position: bool = Field(default=False, alias="RAG_CHUNKING_METADATA_INCLUDE_POSITION")
 
 
-class GraphRAGConfig(BaseSettings):
+class GraphRAGConfig(BaseAppConfig):
     """GraphRAG 配置"""
-    extractor_type: str = Field(default="dynamic", env="GRAPH_RAG_EXTRACTOR_TYPE")
-    max_triplets_per_chunk: int = Field(default=15, env="GRAPH_RAG_MAX_TRIPLETS_PER_CHUNK")
-    num_workers: int = Field(default=4, env="GRAPH_RAG_NUM_WORKERS")
-    entity_hints: List[str] = Field(
+    extractor_type: str = Field(default="dynamic", alias="GRAPH_RAG_EXTRACTOR_TYPE")
+    max_triplets_per_chunk: int = Field(default=15, alias="GRAPH_RAG_MAX_TRIPLETS_PER_CHUNK")
+    num_workers: int = Field(default=4, alias="GRAPH_RAG_NUM_WORKERS")
+    entity_hints: Union[List[str], str] = Field(
         default=["港口设备", "系统机构", "备件零件", "规格型号", "存放库位"],
-        env="GRAPH_RAG_ENTITY_HINTS"
+        alias="GRAPH_RAG_ENTITY_HINTS"
     )
-    relation_hints: List[str] = Field(
+    relation_hints: Union[List[str], str] = Field(
         default=["包含", "属于", "规格为", "存放于", "别名为"],
-        env="GRAPH_RAG_RELATION_HINTS"
+        alias="GRAPH_RAG_RELATION_HINTS"
     )
-    llm_provider: str = Field(default="deepseek", env="GRAPH_RAG_LLM_PROVIDER")
-    deepseek_api_key: str = Field(default="", env="GRAPH_RAG_DEEPSEEK_API_KEY")
-    deepseek_base_url: str = Field(default="https://api.deepseek.com/v1", env="GRAPH_RAG_DEEPSEEK_BASE_URL")
-    deepseek_model: str = Field(default="deepseek-chat", env="GRAPH_RAG_DEEPSEEK_MODEL")
-    deepseek_temperature: float = Field(default=0.7, env="GRAPH_RAG_DEEPSEEK_TEMPERATURE")
+    llm_provider: str = Field(default="deepseek", alias="GRAPH_RAG_LLM_PROVIDER")
+    deepseek_api_key: str = Field(default="", alias="GRAPH_RAG_DEEPSEEK_API_KEY")
+    deepseek_base_url: str = Field(default="https://api.deepseek.com/v1", alias="GRAPH_RAG_DEEPSEEK_BASE_URL")
+    deepseek_model: str = Field(default="deepseek-chat", alias="GRAPH_RAG_DEEPSEEK_MODEL")
+    deepseek_temperature: float = Field(default=0.7, alias="GRAPH_RAG_DEEPSEEK_TEMPERATURE")
 
-    model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8")
+    @field_validator('entity_hints', 'relation_hints', mode='before')
+    @classmethod
+    def parse_comma_separated(cls, v):
+        if isinstance(v, str):
+            return [item.strip() for item in v.split(',') if item.strip()]
+        return v
 
 
-class GraphRetrievalConfig(BaseSettings):
+class GraphRetrievalConfig(BaseAppConfig):
     """图谱检索配置"""
-    sub_retrievers: List[str] = Field(
+    sub_retrievers: Union[List[str], str] = Field(
         default=["vector", "synonym"],
-        env="GRAPH_RETRIEVAL_SUB_RETRIEVERS"
+        alias="GRAPH_RETRIEVAL_SUB_RETRIEVERS"
     )
-    vector_top_k: int = Field(default=5, env="GRAPH_RETRIEVAL_VECTOR_TOP_K")
-    vector_path_depth: int = Field(default=1, env="GRAPH_RETRIEVAL_VECTOR_PATH_DEPTH")
-    synonym_max_keywords: int = Field(default=8, env="GRAPH_RETRIEVAL_SYNONYM_MAX_KEYWORDS")
-    synonym_path_depth: int = Field(default=1, env="GRAPH_RETRIEVAL_SYNONYM_PATH_DEPTH")
+    vector_top_k: int = Field(default=5, alias="GRAPH_RETRIEVAL_VECTOR_TOP_K")
+    vector_path_depth: int = Field(default=1, alias="GRAPH_RETRIEVAL_VECTOR_PATH_DEPTH")
+    synonym_max_keywords: int = Field(default=8, alias="GRAPH_RETRIEVAL_SYNONYM_MAX_KEYWORDS")
+    synonym_path_depth: int = Field(default=1, alias="GRAPH_RETRIEVAL_SYNONYM_PATH_DEPTH")
 
-    model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8")
+    @field_validator('sub_retrievers', mode='before')
+    @classmethod
+    def parse_comma_separated(cls, v):
+        if isinstance(v, str):
+            return [item.strip() for item in v.split(',') if item.strip()]
+        return v
 
 
-class GraphPerformanceConfig(BaseSettings):
+class GraphPerformanceConfig(BaseAppConfig):
     """图谱性能配置"""
-    query_cache_ttl: int = Field(default=3600, env="GRAPH_QUERY_CACHE_TTL")
-    cache_max_size: int = Field(default=100, env="GRAPH_CACHE_MAX_SIZE")
-
-    model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8")
+    query_cache_ttl: int = Field(default=3600, alias="GRAPH_QUERY_CACHE_TTL")
+    cache_max_size: int = Field(default=100, alias="GRAPH_CACHE_MAX_SIZE")
 
 
 class Config(BaseSettings):
@@ -170,7 +173,12 @@ class Config(BaseSettings):
     graph_retrieval: GraphRetrievalConfig = GraphRetrievalConfig()
     graph_performance: GraphPerformanceConfig = GraphPerformanceConfig()
 
-    model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", case_sensitive=False)
+    model_config = SettingsConfigDict(
+        env_file=".env",
+        env_file_encoding="utf-8",
+        case_sensitive=False,
+        extra="allow"  # 允许额外字段
+    )
 
 
 # 全局配置实例

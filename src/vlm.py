@@ -19,11 +19,12 @@ from src.utils import get_device, image_to_base64
 
 # 尝试导入 RAG 模块
 try:
-    from src.rag import initialize_rag_if_enabled
+    from src.rag_manager import UnifiedRAGManager, initialize_rag_system
     HAS_RAG = True
 except ImportError:
     HAS_RAG = False
-    initialize_rag_if_enabled = None
+    UnifiedRAGManager = None
+    initialize_rag_system = None
 
 class Qwen2VLM:
     def __init__(self):
@@ -35,7 +36,7 @@ class Qwen2VLM:
 
         # RAG 配置
         self._rag_enabled = config.rag.enabled
-        self.rag_retriever = None
+        self.rag_manager = None
 
         print(f"加载 Qwen2-VL 模型: {model_name} 在 {self.device} 上...")
         try:
@@ -55,8 +56,12 @@ class Qwen2VLM:
             raise RuntimeError(f"加载模型失败: {e}")
 
         # 初始化 RAG 检索器
-        if HAS_RAG and initialize_rag_if_enabled:
-            self._rag_enabled, self.rag_retriever = initialize_rag_if_enabled(self._rag_enabled)
+        if HAS_RAG and initialize_rag_system:
+            mode = 'graph' if config.rag.graph_enabled else 'traditional'
+            self._rag_enabled = initialize_rag_system(mode=mode)
+            if self._rag_enabled:
+                from src.rag_manager import get_unified_rag_manager
+                self.rag_manager = get_unified_rag_manager()
 
     def process(
         self,
@@ -134,7 +139,8 @@ class Qwen2VLM:
         self,
         text: str,
         format_instructions: str = "",
-        image: Any = None
+        image: Any = None,
+        enable_rag: Optional[bool] = None
     ) -> Dict[str, Any]:
         """从多模态输入中提取结构化信息
 
@@ -142,6 +148,7 @@ class Qwen2VLM:
             text: 输入文本
             format_instructions: 格式化指令（通常为 JSON Schema）
             image: 图片输入（可选）
+            enable_rag: 是否启用RAG，None表示使用配置值
 
         Returns:
             Dict[str, Any]: 解析后的结构化数据，包含解析结果或原始响应
@@ -154,11 +161,12 @@ class Qwen2VLM:
         """
 
         # RAG 知识注入
-        if self._rag_enabled and self.rag_retriever and text:
+        rag_enabled = enable_rag if enable_rag is not None else self._rag_enabled
+        if rag_enabled and self.rag_manager and text:
             try:
-                results = self.rag_retriever.retrieve(text)
+                results = self.rag_manager.retrieve(text)
                 if results:
-                    rag_context = self.rag_retriever.format_context(results)
+                    rag_context = self.rag_manager.format_context(results)
                     system_prompt += f"\n\n{rag_context}\n"
             except Exception as e:
                 print(f"RAG 检索失败: {e}")
@@ -204,3 +212,37 @@ def get_vlm_instance() -> Qwen2VLM:
         Qwen2VLM: 单例 VLM 实例
     """
     return Qwen2VLM()
+
+def get_vlm_with_rag(
+    mode: str = 'traditional',
+    enable_rag: bool = True
+) -> Optional[Qwen2VLM]:
+    """获取VLM实例并初始化指定模式的RAG
+
+    Args:
+        mode: RAG模式 ('traditional' | 'graph')
+        enable_rag: 是否启用RAG
+
+    Returns:
+        Qwen2VLM: 带RAG配置的VLM实例，或None
+    """
+    try:
+        # 先初始化RAG系统
+        if enable_rag:
+            from src.rag_manager import initialize_rag_system
+            if not initialize_rag_system(mode=mode):
+                return None
+
+        # 获取VLM实例
+        vlm = get_vlm_instance()
+
+        # 更新RAG设置
+        vlm._rag_enabled = enable_rag
+        if enable_rag:
+            from src.rag_manager import get_unified_rag_manager
+            vlm.rag_manager = get_unified_rag_manager()
+
+        return vlm
+    except Exception as e:
+        print(f"获取带RAG的VLM实例失败: {e}")
+        return None

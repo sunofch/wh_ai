@@ -12,7 +12,6 @@ https://docs.llamaindex.org.cn/en/stable/module_guides/indexing/lpg_index_guide/
 """
 import logging
 import time
-from dataclasses import dataclass, field
 from functools import lru_cache
 from pathlib import Path
 from typing import Dict, List, Optional, Any
@@ -41,126 +40,28 @@ from src.graph_extractors import create_kg_extractors
 logger = logging.getLogger(__name__)
 
 
-@dataclass
-class GraphRAGConfig:
-    """GraphRAG 配置管理 - 简化版，使用全局 config 对象"""
+def initialize_llm() -> Optional[Any]:
+    """根据全局 config 初始化 LLM"""
+    cfg = config.graph_rag
 
-    # 基础配置
-    graph_enabled: bool
-    graph_db_path: Path
-    knowledge_base_path: Path
-
-    # 图谱构建配置
-    extractor_type: str = "dynamic"
-    max_triplets_per_chunk: int = 15
-    num_workers: int = 4
-
-    # 实体和关系提示
-    entity_hints: List[str] = field(default_factory=list)
-    relation_hints: List[str] = field(default_factory=list)
-
-    # LLM 配置
-    llm_provider: str = "deepseek"
-    deepseek_api_key: str = ""
-    deepseek_base_url: str = "https://api.deepseek.com/v1"
-    deepseek_model: str = "deepseek-chat"
-    deepseek_temperature: float = 0.7
-
-    # 图检索配置
-    sub_retrievers: List[str] = field(default_factory=lambda: ["vector", "synonym"])
-    vector_top_k: int = 5
-    vector_path_depth: int = 1
-    synonym_max_keywords: int = 8
-    synonym_path_depth: int = 1
-
-    # 性能优化配置
-    query_cache_ttl: int = 3600
-    cache_max_size: int = 100
-
-    # RAG 基础配置
-    embedding_model: str = "BAAI/bge-m3"
-    device: str = "auto"
-    top_k: int = 3
-
-    @classmethod
-    def from_config(cls) -> "GraphRAGConfig":
-        """从全局 config 对象加载配置"""
-        return cls(
-            graph_enabled=config.rag.graph_enabled,
-            graph_db_path=config.paths.graph_db,
-            knowledge_base_path=config.paths.knowledge_base,
-            extractor_type=config.graph_rag.extractor_type,
-            max_triplets_per_chunk=config.graph_rag.max_triplets_per_chunk,
-            num_workers=config.graph_rag.num_workers,
-            entity_hints=config.graph_rag.entity_hints,
-            relation_hints=config.graph_rag.relation_hints,
-            llm_provider=config.graph_rag.llm_provider,
-            deepseek_api_key=config.graph_rag.deepseek_api_key,
-            deepseek_base_url=config.graph_rag.deepseek_base_url,
-            deepseek_model=config.graph_rag.deepseek_model,
-            deepseek_temperature=config.graph_rag.deepseek_temperature,
-            sub_retrievers=config.graph_retrieval.sub_retrievers,
-            vector_top_k=config.graph_retrieval.vector_top_k,
-            vector_path_depth=config.graph_retrieval.vector_path_depth,
-            synonym_max_keywords=config.graph_retrieval.synonym_max_keywords,
-            synonym_path_depth=config.graph_retrieval.synonym_path_depth,
-            query_cache_ttl=config.graph_performance.query_cache_ttl,
-            cache_max_size=config.graph_performance.cache_max_size,
-            embedding_model=config.rag.embedding_model,
-            device=config.rag.device,
-            top_k=config.rag.top_k,
-        )
-
-
-def initialize_llm(config: GraphRAGConfig) -> Optional[Any]:
-    """根据配置初始化 LLM
-
-    Args:
-        config: GraphRAG 配置对象
-
-    Returns:
-        配置好的 LLM 实例，如果配置无效则返回 None
-    """
-    llm = None
-
-    if config.llm_provider == "deepseek":
-        if not config.deepseek_api_key:
+    if cfg.llm_provider == "deepseek":
+        if not cfg.deepseek_api_key:
             logger.warning("DeepSeek API key 未配置，将使用隐式提取器")
             return None
 
         try:
             llm = DeepSeek(
-                model=config.deepseek_model,
-                api_key=config.deepseek_api_key,
-                temperature=config.deepseek_temperature,
+                model=cfg.deepseek_model,
+                api_key=cfg.deepseek_api_key,
+                temperature=cfg.deepseek_temperature,
             )
-            logger.info(f"DeepSeek LLM 初始化成功: {config.deepseek_model}")
+            logger.info(f"DeepSeek LLM 初始化成功: {cfg.deepseek_model}")
+            return llm
         except Exception as e:
             logger.error(f"DeepSeek LLM 初始化失败: {e}")
             return None
 
-    elif config.llm_provider == "openai":
-        api_key = config.graph_rag.openai_api_key
-        model = config.graph_rag.openai_model
-        base_url = config.graph_rag.openai_base_url
-
-        if not api_key:
-            logger.warning("OpenAI API key 未配置")
-            return None
-
-        try:
-            llm = OpenAI(
-                api_key=api_key,
-                model=model,
-                base_url=base_url,
-                temperature=0.7,
-            )
-            logger.info(f"OpenAI LLM 初始化成功: {model}")
-        except Exception as e:
-            logger.error(f"OpenAI LLM 初始化失败: {e}")
-            return None
-
-    return llm
+    return None
 
 
 class GraphRAGRetriever:
@@ -169,8 +70,7 @@ class GraphRAGRetriever:
     基于 LlamaIndex PropertyGraphIndex 实现，支持多种检索器组合
     """
 
-    def __init__(self, config: GraphRAGConfig):
-        self.config = config
+    def __init__(self):
         self._initialized = False
 
         self.llm: Optional[Any] = None
@@ -179,7 +79,7 @@ class GraphRAGRetriever:
         self.graph_retriever: Optional[PGRetriever] = None
         self.query_cache: Dict[str, Dict[str, Any]] = {}
 
-        if self.config.graph_enabled:
+        if config.rag.graph_enabled:
             self._initialize()
 
     def _initialize(self):
@@ -187,16 +87,16 @@ class GraphRAGRetriever:
         logger.info("正在初始化 GraphRAG 模块...")
 
         # 初始化嵌入模型
-        device = get_device(self.config.device)
+        device = get_device(config.rag.device)
         self.embed_model = HuggingFaceEmbedding(
-            model_name=self.config.embedding_model,
+            model_name=config.rag.embedding_model,
             device=device,
             trust_remote_code=True
         )
         Settings.embed_model = self.embed_model
 
         # 初始化 LLM
-        self.llm = initialize_llm(self.config)
+        self.llm = initialize_llm()
         if self.llm:
             Settings.llm = self.llm
         else:
@@ -213,13 +113,8 @@ class GraphRAGRetriever:
         logger.info(">>> GraphRAG 模块初始化完成")
 
     def _load_or_create_graph_index(self) -> PropertyGraphIndex:
-        """加载或创建图谱索引
-
-        按照 LlamaIndex 官方文档推荐的方式：
-        1. 尝试从存储中加载已有索引
-        2. 如果不存在，从文档构建新索引
-        """
-        storage_dir = self.config.graph_db_path / "storage"
+        """加载或创建图谱索引"""
+        storage_dir = config.paths.graph_db / "storage"
 
         if storage_dir.exists():
             try:
@@ -233,11 +128,8 @@ class GraphRAGRetriever:
         return self._build_graph_index()
 
     def _build_graph_index(self) -> PropertyGraphIndex:
-        """从文档构建图谱索引
-
-        使用 PropertyGraphIndex.from_documents() 构建图
-        """
-        logger.info(f"正在从知识库构建图谱: {self.config.knowledge_base_path}")
+        """从文档构建图谱索引"""
+        logger.info(f"正在从知识库构建图谱: {config.paths.knowledge_base}")
 
         documents = self._load_documents()
         if not documents:
@@ -247,7 +139,7 @@ class GraphRAGRetriever:
         logger.info(f"加载了 {len(documents)} 个文档")
 
         # 创建提取器
-        kg_extractors = create_kg_extractors(self.config, self.llm)
+        kg_extractors = create_kg_extractors(config.graph_rag, self.llm)
 
         # 构建图谱索引
         start_time = time.time()
@@ -260,7 +152,7 @@ class GraphRAGRetriever:
         logger.info(f"图谱构建完成，耗时: {elapsed:.2f}s")
 
         # 持久化索引
-        storage_dir = self.config.graph_db_path / "storage"
+        storage_dir = config.paths.graph_db / "storage"
         storage_dir.mkdir(parents=True, exist_ok=True)
         index.storage_context.persist(persist_dir=str(storage_dir))
         logger.info(f"图谱已保存到: {storage_dir}")
@@ -271,12 +163,12 @@ class GraphRAGRetriever:
         """从知识库目录加载文档"""
         from llama_index.core import SimpleDirectoryReader
 
-        if not self.config.knowledge_base_path.exists():
-            logger.warning(f"知识库路径不存在: {self.config.knowledge_base_path}")
+        if not config.paths.knowledge_base.exists():
+            logger.warning(f"知识库路径不存在: {config.paths.knowledge_base}")
             return []
 
         reader = SimpleDirectoryReader(
-            input_dir=str(self.config.knowledge_base_path),
+            input_dir=str(config.paths.knowledge_base),
             recursive=True,
             required_exts=['.md', '.txt', '.json', '.yaml', '.yml', '.pdf', '.docx', '.doc', '.xlsx', '.xls']
         )
@@ -287,31 +179,31 @@ class GraphRAGRetriever:
         sub_retrievers = []
 
         # 向量上下文检索器
-        if "vector" in self.config.sub_retrievers:
+        if "vector" in config.graph_retrieval.sub_retrievers:
             vector_retriever = VectorContextRetriever(
                 self.index.property_graph_store,
                 #【关键修复】：必须传入 vector_store，否则会导致检索失败
                 vector_store=self.index.vector_store,
                 embed_model=self.embed_model,
                 include_text=True,
-                similarity_top_k=self.config.vector_top_k,
-                path_depth=self.config.vector_path_depth,
+                similarity_top_k=config.graph_retrieval.vector_top_k,
+                path_depth=config.graph_retrieval.vector_path_depth,
             )
             sub_retrievers.append(vector_retriever)
             logger.info("向量上下文检索器已初始化")
 
         # 同义词检索器（需要 LLM）
-        if "synonym" in self.config.sub_retrievers and self.llm is not None:
+        if "synonym" in config.graph_retrieval.sub_retrievers and self.llm is not None:
             synonym_retriever = LLMSynonymRetriever(
                 self.index.property_graph_store,
                 llm=self.llm,
                 include_text=True,
-                max_keywords=self.config.synonym_max_keywords,
-                path_depth=self.config.synonym_path_depth,
+                max_keywords=config.graph_retrieval.synonym_max_keywords,
+                path_depth=config.graph_retrieval.synonym_path_depth,
             )
             sub_retrievers.append(synonym_retriever)
             logger.info("同义词检索器已初始化")
-        elif "synonym" in self.config.sub_retrievers and self.llm is None:
+        elif "synonym" in config.graph_retrieval.sub_retrievers and self.llm is None:
             logger.info("同义词检索器跳过（未配置 LLM）")
 
         # 创建组合检索器
@@ -320,14 +212,7 @@ class GraphRAGRetriever:
             logger.info(f"图检索器已初始化，包含 {len(sub_retrievers)} 个子检索器")
 
     def retrieve(self, query: str) -> List[Dict[str, Any]]:
-        """检索图谱
-
-        Args:
-            query: 查询文本
-
-        Returns:
-            检索结果列表，每个结果包含 text, score, metadata, source 字段
-        """
+        """检索图谱"""
         if not self._initialized:
             logger.warning("GraphRAG 模块未初始化")
             return []
@@ -338,11 +223,11 @@ class GraphRAGRetriever:
         start_time = time.time()
 
         # 检查缓存
-        if self.config.query_cache_ttl > 0:
+        if config.graph_performance.query_cache_ttl > 0:
             cache_key = self._get_cache_key(query)
             if cache_key in self.query_cache:
                 cached = self.query_cache[cache_key]
-                if time.time() - cached['timestamp'] < self.config.query_cache_ttl:
+                if time.time() - cached['timestamp'] < config.graph_performance.query_cache_ttl:
                     logger.info(f"缓存命中: {query[:50]}...")
                     return cached['results']
 
@@ -350,13 +235,13 @@ class GraphRAGRetriever:
         graph_results = self._retrieve_graph(query) if self.graph_retriever else []
 
         # 更新缓存
-        if self.config.query_cache_ttl > 0:
+        if config.graph_performance.query_cache_ttl > 0:
             self._update_cache(query, graph_results)
 
         elapsed = time.time() - start_time
         logger.info(f"GraphRAG 检索耗时: {elapsed:.3f}s")
 
-        return graph_results[:self.config.top_k]
+        return graph_results[:config.rag.top_k]
 
     def _retrieve_graph(self, query: str) -> List[Dict[str, Any]]:
         """图检索"""
@@ -390,7 +275,7 @@ class GraphRAGRetriever:
         }
 
         # 限制缓存大小
-        if len(self.query_cache) > self.config.cache_max_size:
+        if len(self.query_cache) > config.graph_performance.cache_max_size:
             # 移除最旧的缓存项
             oldest_key = min(self.query_cache.keys(),
                            key=lambda k: self.query_cache[k]['timestamp'])
@@ -431,36 +316,36 @@ class GraphRAGRetriever:
             return {
                 'node_count': node_count,
                 'relation_count': relation_count,
-                'graph_store_path': str(self.config.graph_db_path),
+                'graph_store_path': str(config.paths.graph_db),
             }
         except Exception as e:
             logger.warning(f"获取图谱统计信息失败: {e}")
             return {
                 'node_count': 0,
                 'relation_count': 0,
-                'graph_store_path': str(self.config.graph_db_path),
+                'graph_store_path': str(config.paths.graph_db),
             }
 
     def is_enabled(self) -> bool:
         """检查 GraphRAG 是否启用"""
-        return self.config.graph_enabled and self._initialized
+        return config.rag.graph_enabled and self._initialized
 
     def get_status(self) -> Dict[str, Any]:
         """获取 GraphRAG 状态信息"""
         status = {
-            'enabled': self.config.graph_enabled,
+            'enabled': config.rag.graph_enabled,
             'initialized': self._initialized,
             'graph_stats': self.get_graph_stats() if self._initialized else {}
         }
 
         if self._initialized:
             status.update({
-                'embedding_model': self.config.embedding_model,
-                'device': str(self.config.device),
-                'top_k': self.config.top_k,
-                'sub_retrievers': self.config.sub_retrievers,
+                'embedding_model': config.rag.embedding_model,
+                'device': str(config.rag.device),
+                'top_k': config.rag.top_k,
+                'sub_retrievers': config.graph_retrieval.sub_retrievers,
                 'cache_size': len(self.query_cache),
-                'cache_ttl': self.config.query_cache_ttl
+                'cache_ttl': config.graph_performance.query_cache_ttl
             })
 
         return status
@@ -469,14 +354,9 @@ class GraphRAGRetriever:
 # 单例缓存
 @lru_cache(maxsize=1)
 def get_graph_rag_instance() -> Optional[GraphRAGRetriever]:
-    """获取 GraphRAG 检索器单例
-
-    Returns:
-        GraphRAG 检索器实例，如果初始化失败或未启用则返回 None
-    """
+    """获取 GraphRAG 检索器单例"""
     try:
-        config = GraphRAGConfig.from_config()
-        rag = GraphRAGRetriever(config)
+        rag = GraphRAGRetriever()
         return rag if rag.is_enabled() else None
     except Exception as e:
         logger.warning(f"GraphRAG 初始化失败: {e}")
