@@ -1,6 +1,14 @@
-# wh_ai - All-in-VLM 多模态AI港口指令解析系统
+# wh_graphrag_re - All-in-VLM 多模态AI港口指令解析系统
 
 基于 Python 的多模态AI系统，集成了语音识别、视觉语言模型、结构化解析和RAG知识检索，专门用于处理港口/海事领域的多模态指令。
+
+## 项目特色
+
+- 🎯 **All-in-VLM架构**：单一VLM模型处理多模态输入+RAG增强
+- 🧠 **双模式RAG**：传统向量检索 + GraphRAG知识图谱
+- 🔊 **多模态输入**：音频、文本、图像统一处理
+- 📊 **结构化输出**：Pydantic模型确保输出质量
+- ⚡ **高性能**：模型缓存、内存处理、查询优化
 
 ## 🌟 核心特性
 
@@ -66,6 +74,9 @@ pip install -r requirements.txt
 # 安装PyTorch（推荐CUDA 12.4）
 pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu124
 
+# 安装FFmpeg（Linux）
+sudo apt-get install ffmpeg
+
 # 安装FFmpeg（Windows）
 winget install "FFmpeg (Essentials Build)"
 
@@ -106,7 +117,7 @@ nano .env
 ### 1. 交互式模式（推荐）
 
 ```bash
-python main_Interaction.py
+python main_interaction.py
 ```
 
 **交互命令：**
@@ -123,13 +134,13 @@ python main_Interaction.py
 
 ```bash
 # 文本指令
-python main_Interaction.py --text "需要5个电机，紧急"
+python main_interaction.py --text "需要5个电机，紧急"
 
 # 图片分析
-python main_Interaction.py --image equipment_photo.jpg
+python main_interaction.py --image equipment_photo.jpg
 
 # 音频转录
-python main_Interaction.py --audio command_audio.wav
+python main_interaction.py --audio command_audio.wav
 ```
 
 ### 3. RAG测试系统
@@ -137,7 +148,10 @@ python main_Interaction.py --audio command_audio.wav
 ```bash
 python main_rag.py
 ```
-提供传统RAG和GraphRAG两种模式的选择界面。
+
+提供传统RAG和GraphRAG两种模式的选择界面，支持：
+- 传统RAG：向量检索 + BM25混合检索
+- GraphRAG：知识图谱检索 + 多跳推理
 
 ## 📋 输出格式
 
@@ -190,18 +204,23 @@ GRAPH_RAG_DEEPSEEK_MODEL=deepseek-chat
 ## 📂 项目结构
 
 ```
-wh_ai/
-├── main_Interaction.py    # 主要交互入口（推荐）
-├── main_rag.py           # RAG测试系统
+wh_graphrag_re/
+├── main_interaction.py    # 主要交互入口（推荐）
+├── main_rag.py            # RAG测试系统
 ├── src/
 │   ├── asr.py            # Whisper语音识别
 │   ├── vlm.py            # Qwen2-VL视觉语言模型
 │   ├── parser.py         # 结构化解析器
 │   ├── rag.py            # 传统RAG检索
+│   ├── rag_manager.py    # RAG统一管理器
 │   ├── graph_rag.py      # GraphRAG图谱检索
 │   ├── graph_extractors.py # 图谱提取器
 │   ├── config.py         # 配置管理（Pydantic）
 │   └── utils.py          # 工具函数
+├── data/
+│   ├── knowledge_base/   # 知识库文档
+│   ├── vector_db/        # 向量数据库
+│   └── graph_db/         # 图谱数据库
 ├── .env.example          # 环境变量模板
 ├── requirements.txt      # 依赖列表
 └── README.md             # 项目文档
@@ -214,7 +233,7 @@ wh_ai/
 ```python
 from src.asr import get_asr_instance
 from src.vlm import get_vlm_instance
-from src.parser import PortInstructionParser
+from src.parser import PortInstructionParser, PortInstruction
 
 # 创建解析器
 asr = get_asr_instance()
@@ -225,9 +244,9 @@ parser = PortInstructionParser()
 audio_text = asr.transcribe("audio.wav")
 
 # 多模态解析
-result = parser.parse(
-    text=audio_text,
-    image="equipment.jpg"
+result = parser.parse_output(
+    vlm_result={"content": "..."},
+    raw_text=audio_text
 )
 print(result.to_dict())
 ```
@@ -266,7 +285,7 @@ if graph_rag:
 ### 1. 编码问题
 如果遇到GBK编码错误，使用：
 ```bash
-python -X utf8 main_Interaction.py
+python -X utf8 main_interaction.py
 ```
 
 ### 2. 模型下载
