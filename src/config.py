@@ -3,8 +3,9 @@
 
 从 config.ini 迁移到环境变量配置系统
 """
+import json
 from pathlib import Path
-from typing import List, Union
+from typing import List, Union, Optional
 
 from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -33,6 +34,44 @@ class VLMConfig(BaseAppConfig):
     model: str = Field(default="Qwen/Qwen2-VL-2B-Instruct", alias="VLM_MODEL")
     device: str = Field(default="auto", alias="VLM_DEVICE")
     max_tokens: int = Field(default=512, alias="VLM_MAX_TOKENS")
+
+
+class VLM35Config(BaseAppConfig):
+    """Qwen3.5 VLM 模型配置"""
+    model: str = Field(default="Qwen/Qwen3.5-4B", alias="VLM35_MODEL")
+    device: str = Field(default="auto", alias="VLM35_DEVICE")
+    max_tokens: int = Field(default=4096, alias="VLM35_MAX_TOKENS")
+    enable_thinking: bool = Field(default=False, alias="VLM35_ENABLE_THINKING")
+
+
+class VLMSelectorConfig(BaseAppConfig):
+    """VLM 模型选择配置"""
+    model_type: str = Field(default="qwen2", alias="VLM_MODEL_TYPE")
+
+
+class VLLMServerConfig(BaseAppConfig):
+    """vLLM服务器配置"""
+    enabled: bool = Field(default=True, alias="VLLM_SERVER_ENABLED")
+    host: str = Field(default="localhost", alias="VLLM_SERVER_HOST")
+    base_port: int = Field(default=8000, alias="VLLM_SERVER_BASE_PORT")
+    tensor_parallel_size: int = Field(default=1, alias="VLLM_SERVER_TP_SIZE")
+    gpu_memory_utilization: float = Field(default=0.9, alias="VLLM_SERVER_GPU_MEM_UTIL")
+    max_model_len: Optional[int] = Field(default=None, alias="VLLM_SERVER_MAX_MODEL_LEN")
+    limit_mm_per_prompt: str = Field(
+        default='{"image": 4}',
+        alias="VLLM_SERVER_LIMIT_MM_PER_PROMPT"
+    )
+
+    @field_validator('limit_mm_per_prompt', mode='before')
+    @classmethod
+    def parse_json(cls, v):
+        if isinstance(v, dict):
+            return json.dumps(v)
+        if isinstance(v, str):
+            # 验证JSON格式并返回
+            json.loads(v)
+            return v
+        return json.dumps(v)
 
 
 class ParserConfig(BaseAppConfig):
@@ -155,6 +194,9 @@ class Config(BaseSettings):
     # 模型配置
     asr: ASRConfig = ASRConfig()
     vlm: VLMConfig = VLMConfig()
+    vlm35: VLM35Config = VLM35Config()
+    vlm_selector: VLMSelectorConfig = VLMSelectorConfig()
+    vllm_server: VLLMServerConfig = VLLMServerConfig()
     parser: ParserConfig = ParserConfig()
 
     # 路径配置
