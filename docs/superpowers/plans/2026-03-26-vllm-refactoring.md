@@ -114,8 +114,12 @@ class VLLMServerConfig(BaseAppConfig):
     @field_validator('limit_mm_per_prompt', mode='before')
     @classmethod
     def parse_json(cls, v):
+        if isinstance(v, dict):
+            return json.dumps(v)
         if isinstance(v, str):
-            return json.dumps(json.loads(v))
+            # 验证JSON格式并返回
+            json.loads(v)
+            return v
         return json.dumps(v)
 ```
 
@@ -239,6 +243,8 @@ pytest tests/test_vlm_server.py -v
 import subprocess
 import time
 import json
+import socket
+import atexit
 from typing import Dict, Optional
 
 import requests
@@ -255,6 +261,24 @@ class VLLMServerManager:
             'qwen2': config.vllm_server.base_port,
             'qwen35': config.vllm_server.base_port + 1
         }
+        # 注册退出时清理所有服务器
+        atexit.register(self.stop_all)
+
+    def _is_port_available(self, port: int) -> bool:
+        """检查端口是否可用
+
+        Args:
+            port: 端口号
+
+        Returns:
+            bool: 可用返回True
+        """
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            try:
+                s.bind(('127.0.0.1', port))
+                return True
+            except OSError:
+                return False
 
     def start_server(self, model_type: str) -> bool:
         """启动指定模型的vLLM服务器
@@ -283,6 +307,13 @@ class VLLMServerManager:
             port = self.port_map['qwen35']
         else:
             raise ValueError(f"不支持的模型类型: {model_type}")
+
+        # 检查端口是否可用
+        if not self._is_port_available(port):
+            raise RuntimeError(
+                f"端口 {port} 已被占用，请检查是否有其他vLLM服务器正在运行，"
+                f"或修改.env中的VLLM_SERVER_BASE_PORT配置"
+            )
 
         # 构造vllm serve命令
         cmd = [
@@ -317,9 +348,21 @@ class VLLMServerManager:
                 return True
             time.sleep(1)
 
-        # 启动失败
+        # 启动失败 - 捕获错误输出
+        try:
+            stdout, stderr = process.communicate(timeout=1)
+        except:
+            stdout, stderr = process.stdout.read(), process.stderr.read()
+
         self.stop_server(model_type)
-        raise RuntimeError(f"vLLM服务器 {model_type} 启动超时")
+
+        error_msg = f"vLLM服务器 {model_type} 启动超时（等待{max_wait}秒）"
+        if stderr:
+            error_msg += f"\n错误输出:\n{stderr[-500:]}"  # 最后500字符
+        if stdout:
+            error_msg += f"\n输出:\n{stdout[-500:]}"
+
+        raise RuntimeError(error_msg)
 
     def stop_server(self, model_type: str) -> bool:
         """停止服务器
@@ -344,21 +387,25 @@ class VLLMServerManager:
         del self.servers[model_type]
         return True
 
-    def health_check(self, model_type: str) -> bool:
+    def health_check(self, model_type: str, max_retries: int = 3) -> bool:
         """检查服务器健康状态
 
         Args:
             model_type: 模型类型
+            max_retries: 最大重试次数
 
         Returns:
             bool: 健康返回True
         """
-        try:
-            url = self.get_server_url(model_type)
-            response = requests.get(f"{url}/health", timeout=2)
-            return response.status_code == 200
-        except Exception:
-            return False
+        for attempt in range(max_retries):
+            try:
+                url = self.get_server_url(model_type)
+                response = requests.get(f"{url}/health", timeout=2)
+                return response.status_code == 200
+            except Exception:
+                if attempt < max_retries - 1:
+                    time.sleep(0.5)
+        return False
 
     def get_server_url(self, model_type: str) -> str:
         """获取服务器URL
@@ -1063,6 +1110,16 @@ git commit -m "refactor: 重构Qwen35VLM为vLLM客户端
 
 **Files:**
 - Test: `tests/test_vlm_integration.py`
+
+- [ ] **Step 0: 验证src/vlm.py导出**
+
+```bash
+python -c "from src.vlm import VLMClass, VLM_NAME, get_vlm_instance; print('✓ vlm.py导出验证通过')"
+```
+
+预期: 输出 `✓ vlm.py导出验证通过`
+
+如果失败，说明`src/vlm.py`没有正确导出这些符号，需要检查该文件。
 
 - [ ] **Step 1: 创建集成测试**
 
