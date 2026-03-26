@@ -41,3 +41,17 @@ vllm>=0.6.1
 
 # HTTP客户端
 requests>=2.31.0
+
+# 仓储调度系统依赖 (Warehouse Scheduling System Dependencies)
+
+# HTTP服务框架
+fastapi>=0.104.0
+uvicorn[standard]>=0.24.0
+httpx>=0.25.0
+python-multipart>=0.0.6
+
+# 调度算法
+ortools>=9.8.3296
+
+# 仿真环境
+gymnasium>=0.29.0
