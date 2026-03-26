@@ -33,11 +33,11 @@ def test_parser_service(base_url: str = "http://127.0.0.1:8001"):
 
     try:
         response = requests.get(f"{base_url}/health")
-        print(f"Health check: {response.status_code}")
-        print(f"Response: {response.json()}")
+        print(f"健康检查: {response.status_code}")
+        print(f"响应: {response.json()}")
         return True
     except Exception as e:
-        print(f"❌ Parser service test failed: {e}")
+        print(f"❌ 解析服务测试失败: {e}")
         return False
 
 
@@ -50,9 +50,9 @@ def test_scheduler_service(base_url: str = "http://127.0.0.1:8002"):
     try:
         # Health check
         response = requests.get(f"{base_url}/health")
-        print(f"Health check: {response.status_code}")
+        print(f"健康检查: {response.status_code}")
         health = response.json()
-        print(f"Response: {health}")
+        print(f"响应: {health}")
 
         # Create sample tasks
         tasks = [
@@ -104,7 +104,7 @@ def test_scheduler_service(base_url: str = "http://127.0.0.1:8002"):
             "agv_states": [agv.model_dump() for agv in agv_states],
         }
 
-        print(f"\nScheduling {len(tasks)} tasks to {len(agv_states)} AGVs...")
+        print(f"\n正在调度 {len(tasks)} 个任务到 {len(agv_states)} 个AGV...")
 
         response = requests.post(
             f"{base_url}/api/v1/schedule",
@@ -112,22 +112,22 @@ def test_scheduler_service(base_url: str = "http://127.0.0.1:8002"):
             timeout=30
         )
 
-        print(f"Schedule response: {response.status_code}")
+        print(f"调度响应: {response.status_code}")
 
         if response.status_code == 200:
             result = response.json()
-            print(f"✓ Schedule created: {result['schedule_id']}")
-            print(f"  Assignments: {result['assignments']}")
-            print(f"  Makespan: {result['makespan']}s")
-            print(f"  Conflicts detected: {len(result.get('conflicts_detected', []))}")
-            print(f"  Conflicts resolved: {len(result.get('conflicts_resolved', []))}")
+            print(f"✓ 调度创建成功: {result['schedule_id']}")
+            print(f"  任务分配: {result['assignments']}")
+            print(f"  完成时间: {result['makespan']}秒")
+            print(f"  检测到的冲突: {len(result.get('conflicts_detected', []))}")
+            print(f"  已解决的冲突: {len(result.get('conflicts_resolved', []))}")
             return result
         else:
-            print(f"❌ Schedule request failed: {response.text}")
+            print(f"❌ 调度请求失败: {response.text}")
             return None
 
     except Exception as e:
-        print(f"❌ Scheduler service test failed: {e}")
+        print(f"❌ 调度服务测试失败: {e}")
         import traceback
         traceback.print_exc()
         return None
@@ -142,11 +142,11 @@ def test_simulation_service(base_url: str = "http://127.0.0.1:8003", schedule_re
     try:
         # Health check
         response = requests.get(f"{base_url}/health")
-        print(f"Health check: {response.status_code}")
-        print(f"Response: {response.json()}")
+        print(f"健康检查: {response.status_code}")
+        print(f"响应: {response.json()}")
 
         if not schedule_result:
-            print("⚠ No schedule result provided, skipping execution test")
+            print("⚠ 未提供调度结果，跳过执行测试")
             return True
 
         # Execute request
@@ -159,13 +159,13 @@ def test_simulation_service(base_url: str = "http://127.0.0.1:8003", schedule_re
         }
 
         # For now, just test health check
-        print("\n✓ Simulation service is running")
-        print("  (Full execution test requires original task objects)")
+        print("\n✓ 仿真服务正在运行")
+        print("  (完整执行测试需要原始任务对象)")
 
         return True
 
     except Exception as e:
-        print(f"❌ Simulation service test failed: {e}")
+        print(f"❌ 仿真服务测试失败: {e}")
         import traceback
         traceback.print_exc()
         return False
@@ -174,7 +174,7 @@ def test_simulation_service(base_url: str = "http://127.0.0.1:8003", schedule_re
 def test_end_to_end():
     """Run end-to-end integration test."""
     print(f"\n{'='*60}")
-    print("🚀 Warehouse Scheduling System - End-to-End Test")
+    print("🚀 仓储调度系统 - 端到端测试")
     print(f"{'='*60}")
 
     results = {}
@@ -193,20 +193,20 @@ def test_end_to_end():
 
     # Summary
     print(f"\n{'='*60}")
-    print("📊 Test Summary")
+    print("📊 测试摘要")
     print(f"{'='*60}")
 
     for service, passed in results.items():
-        status = "✓ PASS" if passed else "✗ FAIL"
+        status = "✓ 通过" if passed else "✗ 失败"
         print(f"  {service.capitalize():15} {status}")
 
     all_passed = all(results.values())
 
     print(f"\n{'='*60}")
     if all_passed:
-        print("✓ All tests passed!")
+        print("✓ 所有测试通过!")
     else:
-        print("✗ Some tests failed")
+        print("✗ 部分测试失败")
     print(f"{'='*60}\n")
 
     return all_passed

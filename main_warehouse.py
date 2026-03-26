@@ -86,7 +86,7 @@ class ServiceManager:
                 self.processes.append((service, process))
                 time.sleep(2)  # Give each service time to start
             except Exception as e:
-                print(f"❌ Failed to start {service['name']}: {e}")
+                print(f"❌ 启动服务 {service['name']} 失败: {e}")
 
         # Print status
         self.print_status()
@@ -100,55 +100,55 @@ class ServiceManager:
 
     def stop_all(self):
         """Stop all services."""
-        print("\n\n🛑 Stopping all services...")
+        print("\n\n🛑 正在停止所有服务...")
 
         for service, process in self.processes:
-            print(f"Stopping {service['name']}...")
+            print(f"正在停止 {service['name']}...")
             process.terminate()
 
         # Wait for processes to stop
         for service, process in self.processes:
             try:
                 process.wait(timeout=5)
-                print(f"✓ {service['name']} stopped")
+                print(f"✓ {service['name']} 已停止")
             except subprocess.TimeoutExpired:
-                print(f"⚠ {service['name']} did not stop gracefully, killing...")
+                print(f"⚠ 服务 {service['name']} 未能优雅停止，正在强制终止...")
                 process.kill()
 
-        print("\n✓ All services stopped")
+        print("\n✓ 所有服务已停止")
 
     def print_status(self):
         """Print status of all services."""
         print(f"\n{'='*60}")
-        print("📊 Service Status")
+        print("📊 服务状态")
         print(f"{'='*60}")
 
         for service, process in self.processes:
             if process.poll() is None:
-                status = "✓ Running"
+                status = "✓ 运行中"
                 url = f"http://127.0.0.1:{service['port']}"
             else:
-                status = "✗ Stopped"
-                url = "N/A"
+                status = "✗ 已停止"
+                url = "不可用"
 
             print(f"\n{service['description']}")
-            print(f"  Status: {status}")
+            print(f"  状态: {status}")
             print(f"  URL: {url}")
-            print(f"  Docs: {url}/docs" if url != "N/A" else "")
+            print(f"  文档: {url}/docs" if url != "不可用" else "")
 
         print(f"\n{'='*60}\n")
 
     def monitor(self):
         """Monitor running processes."""
-        print("Services are running. Press Ctrl+C to stop.\n")
+        print("服务正在运行。按 Ctrl+C 停止。\n")
 
         try:
             while True:
                 # Check if any process died
                 for service, process in self.processes:
                     if process.poll() is not None:
-                        print(f"⚠ Service {service['name']} has stopped unexpectedly!")
-                        print(f"   Exit code: {process.returncode}")
+                        print(f"⚠ 服务 {service['name']} 意外停止!")
+                        print(f"   退出代码: {process.returncode}")
 
                 time.sleep(5)
 
@@ -163,7 +163,7 @@ class ServiceManager:
 
 def check_dependencies():
     """Check if required dependencies are installed."""
-    print("Checking dependencies...")
+    print("正在检查依赖...")
 
     missing = []
 
@@ -173,7 +173,7 @@ def check_dependencies():
         print("  ✓ FastAPI")
     except ImportError:
         missing.append("fastapi")
-        print("  ✗ FastAPI (not installed)")
+        print("  ✗ FastAPI (未安装)")
 
     # Check OR-Tools
     try:
@@ -181,7 +181,7 @@ def check_dependencies():
         print("  ✓ OR-Tools")
     except ImportError:
         missing.append("ortools")
-        print("  ✗ OR-Tools (not installed)")
+        print("  ✗ OR-Tools (未安装)")
 
     # Check Gymnasium
     try:
@@ -189,14 +189,15 @@ def check_dependencies():
         print("  ✓ Gymnasium")
     except ImportError:
         missing.append("gymnasium")
-        print("  ✗ Gymnasium (not installed)")
+        print("  ✗ Gymnasium (未安装)")
 
     if missing:
-        print(f"\n⚠ Missing dependencies: {', '.join(missing)}")
-        print("Install with: pip install " + " ".join(missing))
+        missing_str = "、".join(missing)
+        print(f"\n⚠ 缺少依赖: {missing_str}")
+        print(f"安装命令: pip install {' '.join(missing)}")
         return False
 
-    print("\n✓ All dependencies installed\n")
+    print("\n✓ 所有依赖已安装\n")
     return True
 
 
@@ -227,7 +228,7 @@ def main():
 
     if args.command == "start":
         if not check_dependencies():
-            print("\n⚠ Please install missing dependencies before starting services")
+            print("\n⚠ 请先安装缺失的依赖后再启动服务")
             sys.exit(1)
 
         manager = ServiceManager()
