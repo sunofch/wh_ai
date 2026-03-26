@@ -8,6 +8,7 @@ import re
 from functools import lru_cache
 from typing import Any, Dict, Optional
 
+import httpx
 from openai import OpenAI
 from PIL import Image
 import numpy as np
@@ -115,7 +116,8 @@ class Qwen35VLM:
                 model=config.vlm35.model,
                 messages=messages,
                 max_tokens=self.max_new_tokens,
-                temperature=0.0
+                temperature=0.0,
+                extra_body={"chat_template_kwargs": {"enable_thinking": False},}  # 关闭vLLM的思考过程输出，专注于最终结果
             )
             return response.choices[0].message.content.strip()
         except Exception as e:

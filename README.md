@@ -118,8 +118,9 @@ GRAPH_RAG_DEEPSEEK_API_KEY=your-api-key-here
 VLLM_SERVER_ENABLED=true
 VLLM_SERVER_HOST=localhost
 VLLM_SERVER_BASE_PORT=8000
-VLLM_SERVER_GPU_MEM_UTIL=0.9
-VLLM_SERVER_LIMIT_MM_PER_PROMPT={"image": 4, "video": 0}
+VLLM_SERVER_GPU_MEM_UTIL=0.5
+VLLM_SERVER_STARTUP_TIMEOUT=180
+VLLM_SERVER_LIMIT_MM_PER_PROMPT={"image": 4}
 ```
 
 **vLLM说明：**
@@ -224,7 +225,7 @@ VLM_DEVICE=auto
 VLM_MAX_TOKENS=512
 
 # Qwen3.5-VLM配置
-VLM35_MODEL=Qwen/Qwen3.5-9B
+VLM35_MODEL=Qwen/Qwen3.5-4B
 VLM35_DEVICE=auto
 VLM35_MAX_TOKENS=4096
 
@@ -281,7 +282,7 @@ VLM_MODEL_TYPE=qwen35 python main_interaction.py --text "需要5个电机"
 
 **模型对比**：
 - **Qwen2-VL-2B**：较小（~5GB），推理速度快，适合资源受限环境
-- **Qwen3.5-9B**：更大（~18GB），推理能力更强，适合复杂场景
+- **Qwen3.5-4B**：中等（~9GB），平衡性能和速度
 
 ## 📂 项目结构
 
@@ -291,9 +292,10 @@ wh_graphrag_re/
 ├── main_rag.py            # RAG测试系统
 ├── src/
 │   ├── asr.py            # Whisper语音识别
-│   ├── vlm.py            # 统一VLM接口（支持模型切换）
-│   ├── qwen2vlm.py       # Qwen2-VL实现
-│   ├── qwen35vlm.py      # Qwen3.5-VLM实现
+│   ├── vlm.py            # 统一VLM入口（动态模型选择）
+│   ├── qwen2vlm.py       # Qwen2-VL实现（vLLM客户端）
+│   ├── qwen35vlm.py      # Qwen3.5-VLM实现（vLLM客户端）
+│   ├── vlm_server.py     # vLLM服务器管理
 │   ├── parser.py         # 结构化解析器
 │   ├── rag.py            # 传统RAG检索
 │   ├── rag_manager.py    # RAG统一管理器

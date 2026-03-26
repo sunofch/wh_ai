@@ -22,7 +22,7 @@ except ImportError:
     HAS_RECORDING_LIB = False
 
 from src.asr import get_asr_instance
-from src.vlm import get_vlm_instance
+from src.vlm import get_vlm_instance, VLM_NAME
 from src.parser import PortInstructionParser, PortInstruction
 from src.config import config
 
@@ -63,7 +63,7 @@ class InstructionParser:
                 from src.rag_manager import get_unified_rag_manager
                 self.rag_manager = get_unified_rag_manager()
 
-        logger.info(">>> 系统初始化完成 (模型已加载到显存)")
+        logger.info(f">>> 系统初始化完成 (VLM模型: {VLM_NAME})")
 
     def set_rag_enabled(self, enabled: bool):
         """动态启用/禁用 RAG"""
@@ -191,6 +191,7 @@ def interactive_mode() -> None:
     """
     print("="*60)
     print("港口指令解析系统 - 全能交互模式")
+    print(f"当前VLM模型: {VLM_NAME}")
     print("支持操作：")
     print("   1. 输入文本指令 (如：需要5个电机)")
     print("   2. 输入文件路径 (直接将 图片/音频 文件拖入窗口)")

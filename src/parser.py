@@ -12,12 +12,12 @@ from src.config import config
 
 # 数据模型定义
 class PortInstruction(BaseModel):
-    part_name: Optional[str] = Field(description="备件名称", default=None)
+    part_name: Optional[str] = Field(description="备件中文名称", default=None)
     quantity: Optional[int] = Field(description="所需数量", default=None)
     model: Optional[str] = Field(description="型号", default=None)
     installation_equipment: Optional[str] = Field(description="安装设备", default=None)
-    location: Optional[str] = Field(description="地点", default=None)
-    description: Optional[str] = Field(description="详细描述", default=None)
+    location: Optional[str] = Field(description="备件安装设备的地点", default=None)
+    description: Optional[str] = Field(description="用户指令中的其他重要信息", default=None)
     action_required: Optional[str] = Field(description="行动：更换、维修、检查等", default=None)
     
     def to_dict(self) -> Dict[str, Any]:

@@ -41,7 +41,6 @@ class VLM35Config(BaseAppConfig):
     model: str = Field(default="Qwen/Qwen3.5-4B", alias="VLM35_MODEL")
     device: str = Field(default="auto", alias="VLM35_DEVICE")
     max_tokens: int = Field(default=4096, alias="VLM35_MAX_TOKENS")
-    enable_thinking: bool = Field(default=False, alias="VLM35_ENABLE_THINKING")
 
 
 class VLMSelectorConfig(BaseAppConfig):
@@ -61,6 +60,7 @@ class VLLMServerConfig(BaseAppConfig):
         default='{"image": 4}',
         alias="VLLM_SERVER_LIMIT_MM_PER_PROMPT"
     )
+    startup_timeout: int = Field(default=180, alias="VLLM_SERVER_STARTUP_TIMEOUT")
 
     @field_validator('limit_mm_per_prompt', mode='before')
     @classmethod

@@ -102,8 +102,8 @@ class VLLMServerManager:
 
         self.servers[model_type] = process
 
-        # 等待服务器就绪
-        max_wait = 60
+        # 等待服务器就绪（使用配置的超时时间）
+        max_wait = config.vllm_server.startup_timeout
         for i in range(max_wait):
             if self.health_check(model_type):
                 print(f"vLLM服务器 {model_type} 启动成功")
@@ -123,6 +123,13 @@ class VLLMServerManager:
             error_msg += f"\n错误输出:\n{stderr[-500:]}"  # 最后500字符
         if stdout:
             error_msg += f"\n输出:\n{stdout[-500:]}"
+
+        # 提供诊断建议
+        error_msg += f"\n\n诊断建议:"
+        error_msg += f"\n  1. 检查GPU状态: nvidia-smi"
+        error_msg += f"\n  2. 检查端口占用: netstat -tlnp | grep {port}"
+        error_msg += f"\n  3. 增加超时时间: 在.env中设置 VLLM_SERVER_STARTUP_TIMEOUT={max_wait + 60}"
+        error_msg += f"\n  4. 查看vLLM日志: 检查stderr输出中的错误信息"
 
         raise RuntimeError(error_msg)
 

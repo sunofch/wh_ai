@@ -30,7 +30,6 @@ from llama_index.core.indices.property_graph import (
     LLMSynonymRetriever,
 )
 from llama_index.embeddings.huggingface import HuggingFaceEmbedding
-from llama_index.llms.openai import OpenAI
 from llama_index.llms.deepseek import DeepSeek
 
 from src.config import config
