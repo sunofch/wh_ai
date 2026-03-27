@@ -142,6 +142,29 @@ The system supports **two independent RAG modes** selected at runtime:
 
 **Switching Modes**: Set `RAG_GRAPH_ENABLED=true/false` in `.env` or via `rag_manager.initialize(mode='graph'/'traditional')`.
 
+### Reranker System
+
+The system uses a **unified Reranker module** (`src/reranker.py`) that serves both RAG modes:
+
+- **BGE-reranker-v2-m3**: State-of-the-art cross-encoder for result reranking
+- **Singleton Pattern**: Global `RerankerManager` instance shared across all modules
+- **Flexible Integration**:
+  - Traditional RAG: Enabled via `RAG_RERANK_ENABLED=true`
+  - GraphRAG: Enabled via `GRAPH_RERANK_ENABLED=true`
+- **Configuration**:
+  - `RAG_RERANK_TOP_K` / `GRAPH_RERANK_TOP_K`: Candidate count for reranking (default: 10)
+  - `RAG_RERANK_FINAL_TOP_K` / `GRAPH_RERANK_FINAL_TOP_K`: Final result count (default: 3)
+  - `RAG_RERANK_DEVICE` / `GRAPH_RERANK_DEVICE`: Device selection (auto/cuda/cpu)
+
+**Usage**:
+```python
+from src.reranker import get_reranker_instance
+
+reranker = get_reranker_instance()
+results = reranker.rerank(query, candidates, top_k=3)
+# Results now contain 'rerank_score' field and are sorted by relevance
+```
+
 ### Module Structure
 
 **Entry Points**:
@@ -159,12 +182,13 @@ The system supports **two independent RAG modes** selected at runtime:
 - `rag_manager.py`: **UnifiedRAGManager** - Single entry point for both RAG modes
 - `rag.py`: RAGRetriever - Traditional vector + BM25 retrieval
 - `graph_rag.py`: GraphRAGRetriever - Knowledge graph retrieval
+- `reranker.py`: **RerankerManager** - Unified BGE Reranker service (singleton)
 - `utils.py`: Device selection and image conversion utilities
 
 ### Key Design Patterns
 
 **Singleton Pattern with LRU Cache**:
-- `get_asr_instance()`, `get_vlm_instance()`, `get_vlm_server_manager()`
+- `get_asr_instance()`, `get_vlm_instance()`, `get_vlm_server_manager()`, `get_reranker_instance()`
 - Models/servers loaded once and cached in memory
 - Prevents GPU OOM from multiple model loads
 
@@ -271,6 +295,12 @@ Located in `data/knowledge_base/`:
 - Confirm `data/knowledge_base/` has `.md` files
 - Check BGE-M3 model downloaded correctly
 - Try `rag:rebuild` command to rebuild index
+
+**Reranker not working**:
+- Check if `RAG_RERANK_ENABLED=true` (for traditional RAG) or `GRAPH_RERANK_ENABLED=true` (for GraphRAG)
+- Ensure `FlagEmbedding` library is installed: `pip install -U FlagEmbedging`
+- BGE-reranker-v2-m3 model (~1.5GB) will download on first use
+- Check if results contain `rerank_score` field to verify reranking is active
 
 **Audio recording errors**:
 - Install: `pip install sounddevice soundfile numpy`
