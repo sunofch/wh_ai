@@ -1,7 +1,7 @@
 """
 测试 RAG 上下文注入功能
 """
-from src.rag_manager import initialize_rag_system, get_unified_rag_manager
+from src.rag import initialize_rag_system, get_unified_rag_manager
 
 def test_rag_context(mode: str, query: str):
     """测试 RAG 上下文注入"""

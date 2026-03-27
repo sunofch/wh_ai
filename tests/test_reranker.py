@@ -2,7 +2,7 @@
 Reranker 模块单元测试
 """
 import pytest
-from src.reranker import get_reranker_instance, RerankerManager, rerank_results
+from src.common.reranker import get_reranker_instance, RerankerManager, rerank_results
 
 
 def test_reranker_singleton():

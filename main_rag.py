@@ -9,8 +9,12 @@ import logging
 import sys
 from typing import Optional
 
-from src.rag import get_rag_instance, check_rag_available
-from src.graph_rag import get_graph_rag_instance, check_graph_rag_available
+from src.rag import (
+    get_rag_instance,
+    check_rag_available,
+    get_graph_rag_instance,
+    check_graph_rag_available,
+)
 
 # 配置日志
 logging.basicConfig(

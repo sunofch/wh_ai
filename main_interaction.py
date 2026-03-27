@@ -24,11 +24,11 @@ except ImportError:
 from src.asr import get_asr_instance
 from src.vlm import get_vlm_instance, VLM_NAME
 from src.parser import PortInstructionParser, PortInstruction
-from src.config import config
+from src.common.config import config
 
 # 尝试导入 RAG 模块
 try:
-    from src.rag_manager import UnifiedRAGManager, initialize_rag_system
+    from src.rag import UnifiedRAGManager, initialize_rag_system
     HAS_RAG = True
 except ImportError:
     HAS_RAG = False
