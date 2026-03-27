@@ -40,11 +40,20 @@ class Qwen35VLM:
         self._rag_enabled = config.rag.enabled
         self.rag_manager = None
 
-        # 获取vLLM服务器管理器并启动服务器
+        # 获取vLLM服务器管理器
         self.server_manager = get_vlm_server_manager()
 
-        if not self.server_manager.health_check('qwen35'):
-            self.server_manager.start_server('qwen35')
+        if not self.server_manager.is_server_running():
+            raise RuntimeError(
+                f"\n{'='*60}\n"
+                f"vLLM 服务器未运行！\n"
+                f"{'='*60}\n"
+                f"请先启动服务器:\n"
+                f"  python start_vlm_server.py\n\n"
+                f"或查看服务器状态:\n"
+                f"  python status_vlm_server.py\n"
+                f"{'='*60}\n"
+            )
 
         # 初始化OpenAI客户端
         server_url = self.server_manager.get_server_url('qwen35')
