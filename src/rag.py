@@ -17,6 +17,9 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
+# 导入 Reranker 模块
+from src.reranker import get_reranker_instance
+
 # 核心依赖
 from llama_index.core import VectorStoreIndex, Document, Settings, SimpleDirectoryReader, StorageContext
 from llama_index.core.node_parser import SentenceSplitter
@@ -71,11 +74,10 @@ class RAGRetriever:
         # 2. 初始化chunking策略
         self._initialize_splitter()
 
-        # 3. 初始化reranker
-        if config.rerank.enabled:
-            self._initialize_reranker()
+        # 3. 获取 Reranker 实例（全局单例）
+        self.reranker = get_reranker_instance()
 
-        # 3. 加载或创建向量索引
+        # 4. 加载或创建向量索引
         self._load_or_create_index()
 
         self._initialized = True
@@ -101,18 +103,6 @@ class RAGRetriever:
                 chunk_overlap=config.chunking.chunk_overlap
             )
             logger.info(f"使用固定分割策略 (size={config.chunking.chunk_size}, overlap={config.chunking.chunk_overlap})")
-
-    def _initialize_reranker(self):
-        """初始化BGE重排序器"""
-        try:
-            from FlagEmbedding import FlagReranker
-            device = get_device(config.rerank.device)
-            self.reranker = FlagReranker(config.rerank.model, device=device)
-            logger.info(f"Reranker已加载: {config.rerank.model}")
-        except Exception as e:
-            logger.warning(f"Reranker初始化失败: {e}，reranking功能将禁用")
-            self.reranker = None
-
 
     def _load_or_create_index(self):
         """加载或创建向量索引（使用 SimpleVectorStore）"""
@@ -278,8 +268,12 @@ class RAGRetriever:
             results = self._retrieve_fixed(query)
 
         # Reranking
-        if self.reranker and results and config.rerank.enabled:
-            results = self._rerank_results(query, results)
+        if config.rerank.enabled and self.reranker.is_enabled():
+            results = self.reranker.rerank(
+                query,
+                results,
+                top_k=config.rerank.final_top_k
+            )
 
         return results[:config.rag.top_k]
 
@@ -449,27 +443,6 @@ class RAGRetriever:
 
         results.sort(key=lambda x: x['score'], reverse=True)
         return results[:config.rerank.rerank_top_k]
-
-    def _rerank_results(self, query: str, results: List[Dict]) -> List[Dict]:
-        """使用reranker重新排序"""
-        if not results:
-            return results
-
-        try:
-            texts = [r['text'] for r in results]
-            pairs = [[query, text] for text in texts]
-            scores = self.reranker.compute_score(pairs)
-
-            for i, result in enumerate(results):
-                result['rerank_score'] = float(scores[i])
-
-            results.sort(key=lambda x: x['rerank_score'], reverse=True)
-            logger.info(f"Reranking完成，最高分: {max(r['rerank_score'] for r in results):.3f}")
-            return results
-
-        except Exception as e:
-            logger.warning(f"Reranking失败: {e}")
-            return results
 
     def format_context(self, results: List[Dict[str, Any]]) -> str:
         """将检索结果格式化为提示词上下文"""
