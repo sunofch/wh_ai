@@ -8,7 +8,7 @@ from typing import Any, Dict, Optional
 from langchain_core.output_parsers import PydanticOutputParser
 from pydantic import BaseModel, Field
 
-from src.config import config
+from src.common.config import config
 
 # 数据模型定义
 class PortInstruction(BaseModel):

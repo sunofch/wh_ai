@@ -11,8 +11,8 @@ import logging
 from functools import lru_cache
 from typing import Dict, List, Optional
 
-from src.config import config
-from src.utils import get_device
+from .config import config
+from .utils import get_device
 
 logger = logging.getLogger(__name__)
 

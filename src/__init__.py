@@ -12,8 +12,8 @@ from .rag import (
 )
 from .vlm import get_vlm_instance, VLM_NAME
 from .asr import WhisperASR, get_asr_instance
-from .parser import PortInstructionParser, parse_port_instruction
-from .common import settings, get_device, get_reranker_instance
+from .parser import PortInstructionParser, PortInstruction
+from .common import config, get_device, get_reranker_instance
 
 __all__ = [
     # RAG
@@ -34,7 +34,7 @@ __all__ = [
     'PortInstructionParser',
     'parse_port_instruction',
     # Common
-    'settings',
+    'config',
     'get_device',
     'get_reranker_instance',
 ]
