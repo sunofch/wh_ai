@@ -161,9 +161,9 @@ def retrieve(self, query: str):
 4. 传统 RAG 和 GraphRAG 都使用新模块（去除重复代码）
 
 **设计原则**:
-- ✅ **最小化改动**: 只新增和修改必要的文件
-- ✅ **向后兼容**: 保持现有 API 不变
-- ✅ **渐进式集成**: 支持配置化启用/禁用
+- ✅ **代码简洁**: 直接替换，无兼容层
+- ✅ **全局统一**: 所有模块使用同一 API
+- ✅ **配置化集成**: 支持配置化启用/禁用
 - ✅ **复用现有资源**: 不增加模型加载开销
 
 ### 技术选型
@@ -400,36 +400,28 @@ def rerank_results(
 
 ### 2. 修改 `src/rag.py`
 
-**删除重复代码**（第 105-114 行）：
+**删除重复代码**：
 
 ```python
-# ❌ 删除
-def _initialize_reranker(self):
-    """初始化BGE重排序器"""
-    try:
-        from FlagEmbedding import FlagReranker
-        device = get_device(config.rerank.device)
-        self.reranker = FlagReranker(config.rerank.model, device=device)
-        logger.info(f"Reranker已加载: {config.rerank.model}")
-    except Exception as e:
-        logger.warning(f"Reranker初始化失败: {e}，reranking功能将禁用")
-        self.reranker = None
+# ❌ 删除 _initialize_reranker() 方法（第 105-114 行）
+# ❌ 删除 _rerank_results() 方法（第 453-472 行）
+```
+
+**新增导入**：
+
+```python
+from src.reranker import get_reranker_instance
 ```
 
 **修改初始化**：
 
 ```python
-from src.reranker import get_reranker_instance
-
 class RAGRetriever:
     def __init__(self):
         # ... 其他初始化
 
         # ✅ 获取全局 Reranker 实例
-        self.reranker_manager = get_reranker_instance()
-
-        # ✅ 兼容性属性（保持向后兼容）
-        self.reranker = self.reranker_manager if self.reranker_manager.is_enabled() else None
+        self.reranker = get_reranker_instance()
 ```
 
 **修改检索方法**：
@@ -438,18 +430,24 @@ class RAGRetriever:
 def retrieve(self, query: str) -> List[Dict[str, Any]]:
     # ... 检索逻辑
 
-    # ✅ 使用独立模块
-    if config.rerank.enabled and self.reranker_manager.is_enabled():
-        results = self.reranker_manager.rerank(
+    # 选择检索模式
+    if config.retrieval.mode == "hybrid" and config.retrieval.hybrid_enabled:
+        results = self._retrieve_hybrid(query)
+    elif config.retrieval.mode == "adaptive":
+        results = self._retrieve_adaptive(query)
+    else:
+        results = self._retrieve_fixed(query)
+
+    # ✅ 使用独立模块进行 Reranker 精排
+    if config.rerank.enabled and self.reranker.is_enabled():
+        results = self.reranker.rerank(
             query,
             results,
             top_k=config.rerank.final_top_k
         )
 
-    return results
+    return results[:config.rag.top_k]
 ```
-
-**删除 `_rerank_results` 方法**（第 453-472 行，逻辑已移至独立模块）
 
 ### 3. 修改 `src/graph_rag.py`
 
@@ -756,7 +754,7 @@ if __name__ == "__main__":
 
 | 风险 | 可能性 | 影响 | 缓解措施 |
 |------|--------|------|---------|
-| **传统 RAG API 变化** | 低 | 中 | 保留 `self.reranker` 兼容属性 |
+| **API 变化需要更新调用方** | 中 | 低 | 统一修改所有使用的地方 |
 | **配置冲突** | 低 | 低 | 独立的配置命名空间 |
 
 ### 运维风险
