@@ -103,7 +103,7 @@ def forward_logs(process: subprocess.Popen):
                 if process.stdout:
                     line = process.stdout.readline()
                     if line:
-                        print(line.decode('utf-8'), end='')
+                        print(line, end='')
 
         # 启动后台线程
         thread = threading.Thread(target=read_output, daemon=True)
