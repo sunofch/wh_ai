@@ -27,5 +27,8 @@ env/
 .vscode/
 .idea/
 
-# 敏感环境配置文件 
+# 敏感环境配置文件
 .env
+
+# vLLM Server PID 文件
+.vlm_server.pid
