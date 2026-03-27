@@ -164,59 +164,32 @@ vLLM 服务器状态: ✓ 运行中
 
 ---
 
-## 4. 架构决策：为什么选择完全分离
+## 4. 架构决策：完全分离服务器管理
 
-### 4.1 设计权衡
+### 4.1 设计理念
 
-**方案 A（未采用）**：保持自动启动，优化启动速度
-- 优点：对现有代码改动最小
-- 缺点：仍然存在启动等待时间，未解决核心问题
+**核心目标**：彻底分离 vLLM 服务器的启动逻辑与业务代码
 
-**方案 B（采用）**：完全分离服务器管理
-- 优点：
-  - ✅ 完全消除业务代码中的启动等待
-  - ✅ 服务器与业务程序完全解耦
-  - ✅ 支持多程序共享一个服务器
-  - ✅ 更符合微服务架构理念
-- 缺点：
-  - 需要修改现有代码
-  - 需要手动管理服务器生命周期
-  - 影响自动化测试流程
+**架构变更**：
+- **旧架构**：VLM 客户端自动启动服务器，通过 `atexit` 自动清理
+- **新架构**：独立的服务器管理脚本，VLM 客户端仅连接现有服务器
 
-**选择方案 B 的原因**：
-1. 核心目标是"测试时不用反复加载模型"，只有完全分离才能彻底解决
-2. 开发环境通常需要长时间运行多个程序，共享服务器更高效
-3. 手动管理服务器生命周期是开发者可以接受的成本
+**优势**：
+- ✅ 完全消除业务代码中的启动等待
+- ✅ 服务器与业务程序完全解耦
+- ✅ 支持多程序共享一个服务器
+- ✅ 更符合微服务架构理念
+- ✅ 开发体验更好：一次启动，多次使用
 
-### 4.2 迁移策略
+**代价**：
+- ⚠️ 需要手动管理服务器生命周期
+- ⚠️ 需要修改现有代码（一次性工作）
+- ⚠️ 需要更新测试流程
 
-**阶段 1：添加新功能（不破坏现有代码）**
-- 新增 `start_vlm_server.py`, `stop_vlm_server.py`, `status_vlm_server.py`
-- 修改 `src/vlm_server.py`：添加 PID 管理方法
-- 修改 `src/vlm.py`：**同时支持自动启动和手动启动模式**
-
-**阶段 2：修改业务代码**
-- 修改所有使用 VLM 的入口点：
-  - `main_interaction.py`
-  - `main_rag.py`
-  - `test_*.py` 测试文件
-- 添加服务器运行检查
-- 提供友好的错误提示
-
-**阶段 3：清理遗留代码**
-- 移除 `atexit.register(self.stop_all)`
-- 移除自动启动逻辑
-- 更新文档
-
-**兼容性设计**：
-在过渡期，使用环境变量控制行为：
-```bash
-# 旧模式（兼容）：自动启动服务器
-export VLM_SERVER_MANUAL=false
-
-# 新模式：手动管理服务器
-export VLM_SERVER_MANUAL=true
-```
+**为什么不需要向后兼容**：
+1. 这是一个内部开发工具项目，不是对外发布的库
+2. 向后兼容会增加代码复杂度和维护成本
+3. 彻底重构更简单清晰，一次性解决所有问题
 
 ---
 
@@ -284,43 +257,23 @@ def is_server_running(self) -> bool:
 
 **修改 `Qwen2VLM.__init__()` 和 `Qwen35VLM.__init__()`**:
 
-**步骤 1：添加环境变量检查**
 ```python
-# 在 __init__ 开始处添加
-import os
-from src.config import config
+# 旧代码（移除）
+if not self.server_manager.health_check('qwen2'):
+    self.server_manager.start_server('qwen2')
 
-# 检查是否为手动管理模式
-manual_mode = os.getenv("VLM_SERVER_MANUAL", "false").lower() == "true"
-
-# 获取vLLM服务器管理器
-self.server_manager = get_vlm_server_manager()
-model_type = 'qwen2' if isinstance(self, Qwen2VLM) else 'qwen35'
-
-# 检查服务器状态
-if manual_mode:
-    # 手动模式：不自动启动，抛出异常
-    if not self.server_manager.is_server_running():
-        raise RuntimeError(
-            f"\n{'='*60}\n"
-            f"vLLM 服务器未运行！\n"
-            f"{'='*60}\n"
-            f"请先启动服务器:\n"
-            f"  python start_vlm_server.py\n\n"
-            f"或查看服务器状态:\n"
-            f"  python status_vlm_server.py\n"
-            f"{'='*60}\n"
-        )
-else:
-    # 自动模式（兼容旧代码）：自动启动服务器
-    if not self.server_manager.health_check(model_type):
-        self.server_manager.start_server(model_type)
-```
-
-**步骤 2：移除 atexit 自动清理（阶段 3）**
-```python
-# 在 src/vlm_server.py 中移除
-# atexit.register(self.stop_all)  # 删除这行
+# 新代码
+if not self.server_manager.is_server_running():
+    raise RuntimeError(
+        f"\n{'='*60}\n"
+        f"vLLM 服务器未运行！\n"
+        f"{'='*60}\n"
+        f"请先启动服务器:\n"
+        f"  python start_vlm_server.py\n\n"
+        f"或查看服务器状态:\n"
+        f"  python status_vlm_server.py\n"
+        f"{'='*60}\n"
+    )
 ```
 
 ### 5.3 main_interaction.py（修改）
@@ -354,15 +307,25 @@ def __init__(self):
 
 **所有测试文件（test_*.py）都需要添加**：
 ```python
-import os
-os.environ["VLM_SERVER_MANUAL"] = "true"  # 启用手动模式
+import pytest
 
-def test_something():
-    # 测试前检查服务器
+def setup_module():
+    """测试前检查服务器状态"""
     from src.vlm_server import get_vlm_server_manager
     if not get_vlm_server_manager().is_server_running():
         pytest.skip("vLLM 服务器未运行，请先运行: python start_vlm_server.py")
-    # ... 测试代码
+
+# 或者使用 fixture
+@pytest.fixture(scope="module")
+def vlm_server_required():
+    from src.vlm_server import get_vlm_server_manager
+    if not get_vlm_server_manager().is_server_running():
+        pytest.skip("vLLM 服务器未运行")
+    yield
+
+def test_something(vlm_server_required):
+    # 测试代码
+    pass
 ```
 
 ---
@@ -371,40 +334,44 @@ def test_something():
 
 ### 6.1 新增文件
 
+- [x] 设计文档完成
 - [ ] `start_vlm_server.py` - 主启动脚本
 - [ ] `stop_vlm_server.py` - 停止脚本
 - [ ] `status_vlm_server.py` - 状态查询脚本
-- [ ] `.vlm_server.pid` - PID 文件（运行时生成）
-- [ ] `.env.example` - 更新配置示例
+- [ ] `.vlm_server.pid` - PID 文件（运行时生成，不提交到 Git）
+- [ ] 更新 `.gitignore`：添加 `.vlm_server.pid`
 
 ### 6.2 修改文件
 
 **src/vlm_server.py**
-- [ ] 移除 `atexit.register(self.stop_all)`（阶段 3）
-- [ ] 新增 `save_pid_file()` 方法
+- [ ] 移除 `atexit.register(self.stop_all)`
+- [ ] 新增 `save_pid_file(model_type, pid)` 方法
 - [ ] 新增 `load_pid_file()` 方法
 - [ ] 新增 `is_server_running()` 方法
+- [ ] 保留其他现有功能不变
 
 **src/vlm.py**
-- [ ] 修改 `Qwen2VLM.__init__()`: 添加手动模式支持
-- [ ] 修改 `Qwen35VLM.__init__()`: 添加手动模式支持
-- [ ] 添加环境变量检查逻辑
+- [ ] 修改 `Qwen2VLM.__init__()`: 移除自动启动逻辑
+- [ ] 修改 `Qwen35VLM.__init__()`: 移除自动启动逻辑
+- [ ] 添加服务器运行检查，抛出友好异常
 
 **main_interaction.py**
 - [ ] 在 `InstructionParser.__init__()` 中添加服务器检查
+- [ ] 提供友好的错误提示和启动命令
 
 **main_rag.py**
 - [ ] 添加服务器运行检查（如果使用 VLM）
 
 **test_*.py 文件**
-- [ ] 添加 pytest skip 装饰器或前置检查
+- [ ] 添加 pytest skip 或前置检查
 - [ ] 更新测试文档
 
 ### 6.3 文档更新
 
-- [ ] `README.md`：添加服务器管理说明
-- [ ] `CLAUDE.md`：更新项目架构说明
-- [ ] 新增 `docs/vlm-server-management.md`：详细使用指南
+- [ ] `README.md`：添加服务器管理章节
+- [ ] `CLAUDE.md`：更新架构说明
+- [ ] 更新 `Common Commands` 章节
+- [ ] 添加故障排查指南
 
 ---
 
@@ -573,7 +540,80 @@ python stop_vlm_server.py
 
 ## 11. 实现检查清单
 
-### 9.1 start_vlm_server.py
+### 11.1 新增脚本
+
+**start_vlm_server.py**
+- [ ] 读取 .env 配置
+- [ ] 检查端口占用
+- [ ] 检查现有 PID 文件
+- [ ] 启动 vLLM 服务器进程
+- [ ] 健康检查（最多 180 秒）
+- [ ] 保存 PID 文件
+- [ ] 实时显示日志
+- [ ] Ctrl+C 捕获并优雅停止
+- [ ] 错误处理和友好提示
+
+**stop_vlm_server.py**
+- [ ] 读取 PID 文件
+- [ ] 验证进程存在
+- [ ] 发送 SIGTERM
+- [ ] 等待退出（10 秒超时）
+- [ ] 超时则 SIGKILL
+- [ ] 清理 PID 文件
+- [ ] 友好提示
+
+**status_vlm_server.py**
+- [ ] 读取 PID 文件
+- [ ] 检查进程存在
+- [ ] HTTP 健康检查
+- [ ] 格式化显示状态
+- [ ] 错误处理
+
+### 11.2 修改现有代码
+
+**src/vlm_server.py**
+- [ ] 移除 `atexit.register(self.stop_all)`
+- [ ] 新增 `save_pid_file()` 方法
+- [ ] 新增 `load_pid_file()` 方法
+- [ ] 新增 `is_server_running()` 方法
+- [ ] 保持现有功能不变
+
+**src/vlm.py**
+- [ ] 修改 `Qwen2VLM.__init__()`: 移除自动启动
+- [ ] 修改 `Qwen35VLM.__init__()`: 移除自动启动
+- [ ] 添加服务器运行检查
+- [ ] 抛出友好异常
+
+**main_interaction.py**
+- [ ] 添加服务器运行检查
+- [ ] 提供友好的错误提示
+
+**测试文件**
+- [ ] 添加 pytest skip 或前置检查
+- [ ] 更新测试文档
+
+### 11.3 测试验证
+
+**功能测试**
+- [ ] 启动服务器成功
+- [ ] 停止服务器成功
+- [ ] 状态查询正确
+- [ ] 业务程序连接成功
+- [ ] 多程序共享服务器成功
+
+**边界测试**
+- [ ] 端口被占用场景
+- [ ] PID 文件损坏场景
+- [ ] 配置错误场景
+- [ ] 服务器崩溃场景
+- [ ] 重复启动/停止场景
+
+**集成测试**
+- [ ] 完整开发流程测试
+- [ ] Ctrl+C 优雅停止测试
+- [ ] 僵尸进程清理测试
+
+---
 
 - [ ] 读取 .env 配置
 - [ ] 检查端口占用
@@ -619,66 +659,13 @@ python stop_vlm_server.py
 
 ---
 
-## 12. 迁移检查清单
-
-### 12.1 阶段 1：添加新功能（不破坏现有代码）
-
-**目标**：添加服务器管理功能，保持向后兼容
-
-- [ ] 创建 `start_vlm_server.py`
-- [ ] 创建 `stop_vlm_server.py`
-- [ ] 创建 `status_vlm_server.py`
-- [ ] 修改 `src/vlm_server.py`：
-  - [ ] 新增 `save_pid_file()` 方法
-  - [ ] 新增 `load_pid_file()` 方法
-  - [ ] 新增 `is_server_running()` 方法
-  - [ ] **暂时保留** `atexit.register(self.stop_all)`
-- [ ] 修改 `src/vlm.py`：
-  - [ ] 添加环境变量 `VLM_SERVER_MANUAL` 检查
-  - [ ] **暂时保留**自动启动逻辑（当 `VLM_SERVER_MANUAL=false` 时）
-- [ ] 测试：确保现有代码仍然工作
-
-### 12.2 阶段 2：修改业务代码
-
-**目标**：修改所有使用 VLM 的入口点
-
-- [ ] 修改 `main_interaction.py`：
-  - [ ] 添加服务器运行检查
-  - [ ] 提供友好的错误提示
-- [ ] 修改 `main_rag.py`（如果使用 VLM）
-- [ ] 修改所有 `test_*.py` 文件：
-  - [ ] 添加 pytest skip 装饰器
-  - [ ] 更新测试文档
-- [ ] 更新 `README.md`：
-  - [ ] 添加服务器管理章节
-  - [ ] 添加使用流程示例
-- [ ] 测试：确保手动模式正常工作
-
-### 12.3 阶段 3：清理遗留代码
-
-**目标**：移除自动启动逻辑，完全切换到手动模式
-
-- [ ] 修改 `src/vlm_server.py`：
-  - [ ] **移除** `atexit.register(self.stop_all)`
-- [ ] 修改 `src/vlm.py`：
-  - [ ] **移除**自动启动逻辑
-  - [ ] **移除**环境变量检查（默认手动模式）
-- [ ] 更新 `.env.example`：
-  - [ ] 移除 `VLM_SERVER_MANUAL` 配置
-- [ ] 最终测试：
-  - [ ] 完整启动流程测试
-  - [ ] 多程序共享服务器测试
-  - [ ] 所有测试用例通过
-
 ---
 
-## 13. 验收标准
+## 12. 验收标准
 
-- [x] 设计文档完成（包含迁移计划）
-- [ ] 阶段 1 完成：新功能添加，向后兼容
-- [ ] 阶段 2 完成：业务代码修改
-- [ ] 阶段 3 完成：遗留代码清理
-- [ ] 所有代码实现完成
+- [x] 设计文档完成
+- [ ] 所有新增脚本实现完成
+- [ ] 所有现有代码修改完成
 - [ ] 在当前环境中测试通过
 - [ ] 所有测试场景验证通过
 - [ ] 代码符合编码规范约束
@@ -698,15 +685,7 @@ python stop_vlm_server.py
 | 健康检查超时 | 低 | 低 | 增加重试次数，优化超时时间 |
 | 多进程并发访问 | 中 | 低 | HTTP 无状态，无并发问题 |
 
-### A.2 迁移风险
-
-| 风险 | 可能性 | 影响 | 缓解措施 |
-|------|--------|------|----------|
-| 破坏现有测试 | 高 | 高 | 分阶段迁移，添加 pytest skip |
-| 用户不适应 | 中 | 中 | 详细文档，友好的错误提示 |
-| CI/CD 失败 | 中 | 高 | 在 CI 中自动启动服务器 |
-
-### A.3 运维风险
+### A.2 使用风险
 
 | 风险 | 可能性 | 影响 | 缓解措施 |
 |------|--------|------|----------|
@@ -716,24 +695,22 @@ python stop_vlm_server.py
 
 ---
 
-## 附录 B：回滚计划
+## 附录 B：常见问题
 
-如果迁移过程中遇到严重问题，可以回滚到旧版本：
+**Q: 我忘记启动服务器了怎么办？**
+A: 直接运行业务程序会提示你启动服务器，错误信息会给出具体命令。
 
-```bash
-# 回滚步骤
-git revert <commit-hash>  # 回滚迁移的提交
-git push
+**Q: 服务器崩溃了怎么办？**
+A: 运行 `python status_vlm_server.py` 检查状态，如果显示已崩溃，运行 `python stop_vlm_server.py` 清理，然后重新启动。
 
-# 清理遗留文件
-rm -f start_vlm_server.py stop_vlm_server.py status_vlm_server.py
-rm -f .vlm_server.pid
-```
+**Q: 端口被占用了怎么办？**
+A: 运行 `python stop_vlm_server.py` 停止旧服务器，或者使用 `lsof -i :8001` 查找占用端口的进程。
 
-回滚后恢复：
-- 自动启动模式工作正常
-- 所有测试用例通过
-- 用户体验与之前一致
+**Q: 如何在 CI/CD 中使用？**
+A: 在 CI 脚本中添加 `python start_vlm_server.py` 启动服务器，测试结束后运行 `python stop_vlm_server.py` 清理。
+
+**Q: 可以同时运行多个模型吗？**
+A: 可以，但需要启动多个服务器（不同端口）。目前设计只启动 `.env` 中配置的当前模型。
 
 ---
 
