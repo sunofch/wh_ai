@@ -35,6 +35,7 @@ from llama_index.llms.deepseek import DeepSeek
 from src.config import config
 from src.utils import get_device
 from src.graph_extractors import create_kg_extractors
+from src.reranker import get_reranker_instance
 
 logger = logging.getLogger(__name__)
 
@@ -77,6 +78,7 @@ class GraphRAGRetriever:
         self.index: Optional[PropertyGraphIndex] = None
         self.graph_retriever: Optional[PGRetriever] = None
         self.query_cache: Dict[str, Dict[str, Any]] = {}
+        self.reranker = None
 
         if config.rag.graph_enabled:
             self._initialize()
@@ -107,6 +109,11 @@ class GraphRAGRetriever:
 
         # 初始化图检索器
         self._initialize_graph_retriever()
+
+        # 初始化 Reranker
+        self.reranker = get_reranker_instance()
+        if self.reranker.is_enabled():
+            logger.info("Reranker 已集成到 GraphRAG")
 
         self._initialized = True
         logger.info(">>> GraphRAG 模块初始化完成")
@@ -232,6 +239,15 @@ class GraphRAGRetriever:
 
         # 图检索
         graph_results = self._retrieve_graph(query) if self.graph_retriever else []
+
+        # Reranker 精排
+        if config.graph_rerank.enabled and self.reranker.is_enabled():
+            logger.info(f"Reranker 精排前: {len(graph_results)} 个候选")
+            graph_results = self.reranker.rerank(
+                query,
+                graph_results,
+                top_k=config.graph_rerank.final_top_k
+            )
 
         # 更新缓存
         if config.graph_performance.query_cache_ttl > 0:
