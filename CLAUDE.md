@@ -158,6 +158,10 @@ The system uses a **unified Reranker module** (`src/reranker.py`) that serves bo
 
 **Usage**:
 ```python
+# 方式 1: 详细导入（推荐，语义明确）
+from src.common.reranker import get_reranker_instance
+
+# 方式 2: 便捷导入（向后兼容）
 from src.reranker import get_reranker_instance
 
 reranker = get_reranker_instance()
@@ -172,18 +176,19 @@ results = reranker.rerank(query, candidates, top_k=3)
 - `main_rag.py`: RAG testing CLI with mode selection
 
 **Core Processing** (`src/`):
-- `config.py`: **Pydantic Settings** - All configuration from environment variables, grouped by domain (ASR, VLM, RAG, vLLM server, etc.)
-- `vlm.py`: **Unified VLM Entry** - Dynamic model selection router (Qwen2-VL ↔ Qwen3.5-VL)
-- `qwen2vlm.py`: Qwen2VLM - vLLM client implementation using OpenAI SDK
-- `qwen35vlm.py`: Qwen35VLM - vLLM client implementation using OpenAI SDK
-- `vlm_server.py`: **VLLMServerManager** - vLLM server lifecycle management (PID file management, health-check)
-- `asr.py`: WhisperASR - Audio transcription with LRU caching
-- `parser.py`: PortInstructionParser - Schema definition + rule-based fallback
-- `rag_manager.py`: **UnifiedRAGManager** - Single entry point for both RAG modes
-- `rag.py`: RAGRetriever - Traditional vector + BM25 retrieval
-- `graph_rag.py`: GraphRAGRetriever - Knowledge graph retrieval
-- `reranker.py`: **RerankerManager** - Unified BGE Reranker service (singleton)
-- `utils.py`: Device selection and image conversion utilities
+- `src/common/config.py`: **Pydantic Settings** - All configuration from environment variables, grouped by domain (ASR, VLM, RAG, vLLM server, etc.)
+- `src/vlm/router.py`: **Unified VLM Entry** - Dynamic model selection router (Qwen2-VL ↔ Qwen3.5-VL)
+- `src/vlm/qwen2.py`: Qwen2VLM - vLLM client implementation using OpenAI SDK
+- `src/vlm/qwen35.py`: Qwen35VLM - vLLM client implementation using OpenAI SDK
+- `src/vlm/server.py`: **VLLMServerManager** - vLLM server lifecycle management (PID file management, health-check)
+- `src/asr/whisper.py`: WhisperASR - Audio transcription with LRU caching
+- `src/parser/parser.py`: PortInstructionParser - Schema definition + rule-based fallback
+- `src/rag/manager.py`: **UnifiedRAGManager** - Single entry point for both RAG modes
+- `src/rag/traditional.py`: RAGRetriever - Traditional vector + BM25 retrieval
+- `src/rag/graph.py`: GraphRAGRetriever - Knowledge graph retrieval
+- `src/common/reranker.py`: **RerankerManager** - Unified BGE Reranker service (singleton)
+- `src/common/utils.py`: Device selection and image conversion utilities
+- `src/rag/graph_extractors.py`: Knowledge graph extractors for GraphRAG
 
 ### Key Design Patterns
 
