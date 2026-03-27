@@ -2,11 +2,12 @@
 
 负责vLLM服务器的启动、停止和健康检查
 """
+import json
+import os
+import socket
 import subprocess
 import time
-import json
-import socket
-import atexit
+from datetime import datetime
 from typing import Dict, Optional
 
 import requests
@@ -23,8 +24,6 @@ class VLLMServerManager:
             'qwen2': config.vllm_server.base_port,
             'qwen35': config.vllm_server.base_port + 1
         }
-        # 注册退出时清理所有服务器
-        atexit.register(self.stop_all)
 
     def _is_port_available(self, port: int) -> bool:
         """检查端口是否可用
@@ -192,6 +191,70 @@ class VLLMServerManager:
         """停止所有服务器"""
         for model_type in list(self.servers.keys()):
             self.stop_server(model_type)
+
+    def save_pid_file(self, model_type: str, pid: int) -> None:
+        """保存进程信息到 PID 文件
+
+        Args:
+            model_type: 模型类型 ('qwen2' 或 'qwen35')
+            pid: 进程 ID
+        """
+        # 确定模型名称
+        if model_type == 'qwen2':
+            model_name = config.vlm.model
+        elif model_type == 'qwen35':
+            model_name = config.vlm35.model
+        else:
+            model_name = "unknown"
+
+        pid_info = {
+            "pid": pid,
+            "model_type": model_type,
+            "port": self.port_map[model_type],
+            "model_name": model_name,
+            "start_time": datetime.now().isoformat()
+        }
+
+        with open(".vlm_server.pid", "w") as f:
+            json.dump(pid_info, f, indent=2)
+
+    def load_pid_file(self) -> Optional[Dict]:
+        """读取 PID 文件
+
+        Returns:
+            PID 信息字典，如果文件不存在或损坏返回 None
+        """
+        try:
+            with open(".vlm_server.pid", "r") as f:
+                return json.load(f)
+        except (FileNotFoundError, json.JSONDecodeError):
+            return None
+
+    def is_server_running(self) -> bool:
+        """检查服务器是否正在运行
+
+        Returns:
+            bool: 服务器运行中返回 True
+        """
+        pid_info = self.load_pid_file()
+        if not pid_info:
+            return False
+
+        # 检查进程是否存在
+        try:
+            pid = pid_info["pid"]
+            # 使用 os.kill(pid, 0) 检查进程是否存在
+            # 如果进程存在，os.kill(pid, 0) 不抛出异常
+            # 如果进程不存在，抛出 ProcessLookupError
+            os.kill(pid, 0)
+            return True
+        except (OSError, ProcessLookupError):
+            # 进程不存在，清理 PID 文件
+            try:
+                os.remove(".vlm_server.pid")
+            except OSError:
+                pass
+            return False
 
 
 # 全局单例
