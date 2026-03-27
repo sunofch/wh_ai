@@ -11,8 +11,8 @@ import pytest
 )
 def test_graph_rag_reranker_integration():
     """测试 GraphRAG 与 Reranker 集成"""
-    from src.graph_rag import GraphRAGRetriever
-    from src.config import config
+    from src.rag import GraphRAGRetriever
+    from src.common.config import config
 
     # 确保 GraphRAG 和 Reranker 都启用
     if not config.rag.graph_enabled:
@@ -38,8 +38,8 @@ def test_graph_rag_reranker_integration():
 
 def test_graph_rag_reranker_disabled():
     """测试禁用 Reranker 时的行为"""
-    from src.graph_rag import GraphRAGRetriever
-    from src.config import config
+    from src.rag import GraphRAGRetriever
+    from src.common.config import config
 
     # 临时保存原配置
     original_enabled = config.graph_rerank.enabled
@@ -72,8 +72,8 @@ def test_graph_rag_reranker_disabled():
 )
 def test_reranker_top_k_limit():
     """测试 Reranker Top-K 限制"""
-    from src.graph_rag import GraphRAGRetriever
-    from src.config import config
+    from src.rag import GraphRAGRetriever
+    from src.common.config import config
 
     if not config.graph_rerank.enabled:
         pytest.skip("GraphRAG Reranker 未启用")
@@ -96,8 +96,8 @@ def test_reranker_top_k_limit():
 )
 def test_reranker_with_empty_results():
     """测试 Reranker 处理空结果"""
-    from src.graph_rag import GraphRAGRetriever
-    from src.config import config
+    from src.rag import GraphRAGRetriever
+    from src.common.config import config
 
     if not config.graph_rerank.enabled:
         pytest.skip("GraphRAG Reranker 未启用")
@@ -122,8 +122,8 @@ def test_reranker_with_empty_results():
 )
 def test_reranker_preserves_metadata():
     """测试 Reranker 保留原始元数据"""
-    from src.graph_rag import GraphRAGRetriever
-    from src.config import config
+    from src.rag import GraphRAGRetriever
+    from src.common.config import config
 
     if not config.graph_rerank.enabled:
         pytest.skip("GraphRAG Reranker 未启用")
