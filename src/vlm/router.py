@@ -6,23 +6,23 @@
 from functools import lru_cache
 from typing import Any, Dict, Optional
 
-from src.config import config
+from src.common.config import config
 
 # 根据 VLM_MODEL_TYPE 配置动态导入相应的 VLM 模块
 VLM_MODEL_TYPE = config.vlm_selector.model_type.lower()
 
 if VLM_MODEL_TYPE in ('qwen35', 'qwen3.5', 'qwen3'):
-    from src.qwen35vlm import Qwen35VLM as VLMClass
-    from src.qwen35vlm import get_vlm_instance as _get_vlm_instance
+    from .qwen35 import Qwen35VLM as VLMClass
+    from .qwen35 import get_vlm_instance as _get_vlm_instance
     VLM_NAME = "Qwen3.5-VLM"
 elif VLM_MODEL_TYPE in ('qwen2', 'qwen2-vl', 'qwen2vl'):
-    from src.qwen2vlm import Qwen2VLM as VLMClass
-    from src.qwen2vlm import get_vlm_instance as _get_vlm_instance
+    from .qwen2 import Qwen2VLM as VLMClass
+    from .qwen2 import get_vlm_instance as _get_vlm_instance
     VLM_NAME = "Qwen2-VL"
 else:
     # 默认使用 Qwen2-VL
-    from src.qwen2vlm import Qwen2VLM as VLMClass
-    from src.qwen2vlm import get_vlm_instance as _get_vlm_instance
+    from .qwen2 import Qwen2VLM as VLMClass
+    from .qwen2 import get_vlm_instance as _get_vlm_instance
     VLM_NAME = "Qwen2-VL"
 
 
@@ -54,7 +54,7 @@ def get_vlm_with_rag(
     try:
         # 先初始化RAG系统
         if enable_rag:
-            from src.rag_manager import initialize_rag_system
+            from src.rag import initialize_rag_system
             if not initialize_rag_system(mode=mode):
                 return None
 
@@ -64,7 +64,7 @@ def get_vlm_with_rag(
         # 更新RAG设置
         vlm._rag_enabled = enable_rag
         if enable_rag:
-            from src.rag_manager import get_unified_rag_manager
+            from src.rag import get_unified_rag_manager
             vlm.rag_manager = get_unified_rag_manager()
 
         return vlm

@@ -14,13 +14,13 @@ import numpy as np
 
 import json_repair
 
-from src.config import config
-from src.vlm_server import get_vlm_server_manager
-from src.utils import image_to_base64
+from src.common.config import config
+from .server import get_vlm_server_manager
+from src.common.utils import image_to_base64
 
 # 尝试导入 RAG 模块
 try:
-    from src.rag_manager import UnifiedRAGManager, initialize_rag_system
+    from src.rag import UnifiedRAGManager, initialize_rag_system
     HAS_RAG = True
 except ImportError:
     HAS_RAG = False

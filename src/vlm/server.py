@@ -12,7 +12,7 @@ from typing import Dict, Optional
 
 import requests
 
-from src.config import config
+from src.common.config import config
 
 
 class VLLMServerManager:

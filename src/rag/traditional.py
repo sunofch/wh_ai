@@ -18,7 +18,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 # 导入 Reranker 模块
-from src.reranker import get_reranker_instance
+from src.common.reranker import get_reranker_instance
 
 # 核心依赖
 from llama_index.core import VectorStoreIndex, Document, Settings, SimpleDirectoryReader, StorageContext
@@ -31,8 +31,8 @@ from llama_index.retrievers.bm25 import BM25Retriever
 from llama_index.core.node_parser import SemanticSplitterNodeParser
 from llama_index.core.node_parser import MarkdownNodeParser
 
-from src.config import config
-from src.utils import get_device
+from src.common.config import config
+from src.common.utils import get_device
 
 logger = logging.getLogger(__name__)
 

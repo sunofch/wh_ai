@@ -32,10 +32,10 @@ from llama_index.core.indices.property_graph import (
 from llama_index.embeddings.huggingface import HuggingFaceEmbedding
 from llama_index.llms.deepseek import DeepSeek
 
-from src.config import config
-from src.utils import get_device
-from src.graph_extractors import create_kg_extractors
-from src.reranker import get_reranker_instance
+from src.common.config import config
+from src.common.utils import get_device
+from .graph_extractors import create_kg_extractors
+from src.common.reranker import get_reranker_instance
 
 logger = logging.getLogger(__name__)
 

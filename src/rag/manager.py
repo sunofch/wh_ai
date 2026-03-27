@@ -5,8 +5,8 @@
 
 import logging
 from typing import Optional, Union, Dict, Any
-from src.rag import get_rag_instance, RAGRetriever
-from src.graph_rag import get_graph_rag_instance, GraphRAGRetriever, check_graph_rag_available
+from .traditional import get_rag_instance, RAGRetriever
+from .graph import get_graph_rag_instance, GraphRAGRetriever, check_graph_rag_available
 
 logger = logging.getLogger(__name__)
 

@@ -11,8 +11,8 @@ import torch
 import whisper
 from scipy import signal
 
-from src.config import config
-from src.utils import get_device
+from src.common.config import config
+from src.common.utils import get_device
 
 class WhisperASR:
     def __init__(self):
