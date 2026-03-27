@@ -123,6 +123,13 @@ class RerankConfig(BaseAppConfig):
     device: str = Field(default="auto", alias="RAG_RERANK_DEVICE")
 
 
+class GraphRerankConfig(BaseAppConfig):
+    """GraphRAG Reranker 配置"""
+    enabled: bool = Field(default=False, alias="GRAPH_RERANK_ENABLED")
+    top_k: int = Field(default=10, alias="GRAPH_RERANK_TOP_K")
+    final_top_k: int = Field(default=3, alias="GRAPH_RERANK_FINAL_TOP_K")
+
+
 class ChunkingConfig(BaseAppConfig):
     """分块配置"""
     strategy: str = Field(default="semantic", alias="RAG_CHUNKING_STRATEGY")
@@ -212,6 +219,9 @@ class Config(BaseSettings):
     graph_rag: GraphRAGConfig = GraphRAGConfig()
     graph_retrieval: GraphRetrievalConfig = GraphRetrievalConfig()
     graph_performance: GraphPerformanceConfig = GraphPerformanceConfig()
+
+    # GraphRAG Reranker 配置
+    graph_rerank: GraphRerankConfig = GraphRerankConfig()
 
     model_config = SettingsConfigDict(
         env_file=".env",
