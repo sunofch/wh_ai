@@ -48,6 +48,23 @@ logger = logging.getLogger(__name__)
 
 class InstructionParser:
     def __init__(self):
+        # 检查 vLLM 服务器状态
+        from src.vlm_server import get_vlm_server_manager
+        server_mgr = get_vlm_server_manager()
+
+        if not server_mgr.is_server_running():
+            logger.error(
+                "\n" + "="*60 + "\n"
+                "vLLM 服务器未运行！\n"
+                "="*60 + "\n"
+                "请先启动服务器:\n"
+                "  python start_vlm_server.py\n\n"
+                "或查看服务器状态:\n"
+                "  python status_vlm_server.py\n"
+                "="*60
+            )
+            sys.exit(1)
+
         self.asr = get_asr_instance()
         self.vlm = get_vlm_instance()
         self.parser = PortInstructionParser()
