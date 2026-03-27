@@ -5,7 +5,7 @@
 
 ## 背景
 
-当前 `src/` 目录采用扁平结构，包含 13 个模块文件。随着项目发展，这种结构导致：
+当前 `src/` 目录采用扁平结构，包含 14 个文件（13 个模块 + 1 个 __init__.py）。随着项目发展，这种结构导致：
 - 模块职责边界不清晰
 - 新功能添加时缺乏明确的文件放置位置
 - 相关模块分散，难以理解和维护
@@ -62,6 +62,7 @@ src/
 | `config.py` | `src/common/` | `config.py` |
 | `utils.py` | `src/common/` | `utils.py` |
 | `reranker.py` | `src/common/` | `reranker.py` |
+| `__init__.py` | `src/` | 保持（更新导入路径） |
 
 ## 导入路径变更
 
@@ -91,11 +92,15 @@ from src.common.utils import get_device
 
 **src/rag/__init__.py**:
 ```python
-from .traditional import RAGRetriever
-from .graph import GraphRAGRetriever
-from .manager import UnifiedRAGManager
+from .traditional import RAGRetriever, get_rag_instance, check_rag_available
+from .graph import GraphRAGRetriever, get_graph_rag_instance, check_graph_rag_available
+from .manager import UnifiedRAGManager, initialize_rag_system, get_unified_rag_manager
 
-__all__ = ['RAGRetriever', 'GraphRAGRetriever', 'UnifiedRAGManager']
+__all__ = [
+    'RAGRetriever', 'get_rag_instance', 'check_rag_available',
+    'GraphRAGRetriever', 'get_graph_rag_instance', 'check_graph_rag_available',
+    'UnifiedRAGManager', 'initialize_rag_system', 'get_unified_rag_manager'
+]
 ```
 
 **src/vlm/__init__.py**:
@@ -161,6 +166,19 @@ from src.vlm import get_vlm_instance
    - `src/vlm/router.py` (引用 qwen2, qwen35)
    - `src/vlm/server.py` (引用 config)
 
+## 内部依赖映射
+
+完整的模块间导入路径更新表：
+
+| 原导入语句 | 新导入语句 | 影响的文件 |
+|-----------|-----------|-----------|
+| `from src.reranker import ...` | `from src.common.reranker import ...` | src/rag/graph.py, src/rag/traditional.py |
+| `from src.graph_extractors import ...` | `from .graph_extractors import ...` | src/rag/graph.py |
+| `from src.vlm_server import ...` | `from .server import ...` | src/vlm/qwen2.py, src/vlm/qwen35.py |
+| `from src.config import ...` | `from src.common.config import ...` | 所有模块 |
+| `from src.utils import ...` | `from src.common.utils import ...` | 所有模块 |
+| `from src.vlm import ...` | `from .router import ...` | src/vlm/qwen2.py, src/vlm/qwen35.py |
+
 ## 迁移步骤
 
 1. **创建新目录结构**
@@ -182,11 +200,24 @@ from src.vlm import get_vlm_instance
    - 更新 main_xxx.py 文件
    - 更新 tests/ 目录
 
-6. **运行测试验证**
+6. **验证导入路径**
+   ```bash
+   # 验证所有模块可以正确导入
+   python -c "from src.rag import *; from src.vlm import *; from src.asr import *; from src.parser import *; from src.common import *"
+   python -c "import main_interaction; import main_rag"
+   ```
+
+7. **运行测试验证**
    - 运行所有测试确保功能正常
    - 手动测试各入口点
 
-7. **更新文档**
+8. **回滚计划**（如测试失败）
+   ```bash
+   # 如果验证失败，立即回滚所有更改
+   git checkout HEAD -- src/
+   ```
+
+9. **更新文档**
    - 更新 CLAUDE.md 中的模块结构说明
    - 更新导入示例代码
 
@@ -205,8 +236,6 @@ from src.vlm import get_vlm_instance
 3. **易于扩展**: 新增模型或检索方式时，目录结构自然引导位置
 4. **向后兼容**: 通过 `__init__.py` 减少外部代码改动
 
-## 后续优化
+## 范围说明
 
-迁移完成后，可以考虑：
-- 将 `services/shared/` 目录的通用模块合并到 `src/common/`
-- 统一项目配置管理，避免 `src/config.py` 和 `services/shared/config.py` 重复
+本次重组仅涉及 `src/` 目录，不包括 `services/` 目录（仓库调度系统）。两者是独立运行的业务系统，暂时保持分离。
