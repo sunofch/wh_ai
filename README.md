@@ -143,6 +143,62 @@ VLLM_SERVER_LIMIT_MM_PER_PROMPT={"image": 4}
 # - shore_crane_parts.md (岸桥备件)
 ```
 
+## 🔧 vLLM 服务器管理
+
+vLLM 服务器需要独立启动，以便多个程序共享使用，避免每次启动时等待模型加载（~180秒）。
+
+### 启动服务器
+
+```bash
+python start_vlm_server.py
+```
+
+服务器启动后会：
+- 根据 `.env` 中的 `VLM_MODEL_TYPE` 配置自动选择模型
+- 在端口 8000（qwen2）或 8001（qwen35）上运行
+- 显示实时日志
+- 按 `Ctrl+C` 停止服务器
+
+### 查看服务器状态
+
+```bash
+python status_vlm_server.py
+```
+
+显示：
+- 进程 PID
+- 模型名称
+- 端口号
+- 启动时间
+- 健康检查状态
+
+### 停止服务器
+
+```bash
+python stop_vlm_server.py
+```
+
+或按 `Ctrl+C` 停止 `start_vlm_server.py` 脚本。
+
+### 开发工作流
+
+```bash
+# 终端 1：启动 vLLM 服务器（一次性）
+python start_vlm_server.py
+
+# 终端 2：运行业务程序（可多次执行，无需等待）
+python main_interaction.py
+python main_interaction.py  # 再次运行，快速启动
+
+# 终端 1：停止服务器
+# 按 Ctrl+C 或运行
+python stop_vlm_server.py
+```
+
+**注意**：运行 `main_interaction.py` 之前必须先启动 vLLM 服务器！
+
+---
+
 ## 🎯 使用方法
 
 ### 1. 交互式模式（推荐）
