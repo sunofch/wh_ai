@@ -67,7 +67,7 @@ class Qwen2VLM:
             mode = 'graph' if config.rag.graph_enabled else 'traditional'
             self._rag_enabled = initialize_rag_system(mode=mode)
             if self._rag_enabled:
-                from src.rag_manager import get_unified_rag_manager
+                from src.rag import get_unified_rag_manager
                 self.rag_manager = get_unified_rag_manager()
 
         print(f"Qwen2-VL vLLM客户端初始化完成: {server_url}")
@@ -229,7 +229,7 @@ def get_vlm_with_rag(
     """
     # 先初始化RAG系统
     if enable_rag:
-        from src.rag_manager import initialize_rag_system
+        from src.rag import initialize_rag_system
         if not initialize_rag_system(mode=mode):
             raise RuntimeError("RAG系统初始化失败")
 
@@ -239,7 +239,7 @@ def get_vlm_with_rag(
     # 更新RAG设置
     vlm._rag_enabled = enable_rag
     if enable_rag:
-        from src.rag_manager import get_unified_rag_manager
+        from src.rag import get_unified_rag_manager
         vlm.rag_manager = get_unified_rag_manager()
 
     return vlm

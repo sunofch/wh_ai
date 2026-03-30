@@ -68,7 +68,7 @@ class Qwen35VLM:
             mode = 'graph' if config.rag.graph_enabled else 'traditional'
             self._rag_enabled = initialize_rag_system(mode=mode)
             if self._rag_enabled:
-                from src.rag_manager import get_unified_rag_manager
+                from src.rag import get_unified_rag_manager
                 self.rag_manager = get_unified_rag_manager()
 
         print(f"Qwen3.5-VL vLLM客户端初始化完成: {server_url}")
@@ -152,9 +152,10 @@ class Qwen35VLM:
         """
         # === 核心修改点：System Prompt ===
         # 专注于"业务推理逻辑"
-        system_prompt = """/no_think
+        system_prompt = """
         你是一位专业的港口作业指令解析助手。你的任务是根据用户的语音文本和图片，提取结构化数据。
         **只需要输出最后提取的json对象，不要任何解释和多余文本**
+        **location字段为用户指定的地理位置，不是备件库存位置**
         """
 
         # RAG 知识注入
@@ -230,7 +231,7 @@ def get_vlm_with_rag(
     """
     # 先初始化RAG系统
     if enable_rag:
-        from src.rag_manager import initialize_rag_system
+        from src.rag import initialize_rag_system
         if not initialize_rag_system(mode=mode):
             raise RuntimeError("RAG系统初始化失败")
 
@@ -240,7 +241,7 @@ def get_vlm_with_rag(
     # 更新RAG设置
     vlm._rag_enabled = enable_rag
     if enable_rag:
-        from src.rag_manager import get_unified_rag_manager
+        from src.rag import get_unified_rag_manager
         vlm.rag_manager = get_unified_rag_manager()
 
     return vlm

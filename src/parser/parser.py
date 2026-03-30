@@ -16,7 +16,7 @@ class PortInstruction(BaseModel):
     quantity: Optional[int] = Field(description="所需数量", default=None)
     model: Optional[str] = Field(description="型号", default=None)
     installation_equipment: Optional[str] = Field(description="安装设备", default=None)
-    location: Optional[str] = Field(description="备件安装设备的地点", default=None)
+    location: Optional[str] = Field(description="用户指定的地理位置", default=None)
     description: Optional[str] = Field(description="用户指令中的其他重要信息", default=None)
     action_required: Optional[str] = Field(description="行动：更换、维修、检查等", default=None)
     

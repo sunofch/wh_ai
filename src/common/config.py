@@ -14,7 +14,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 class BaseAppConfig(BaseSettings):
     """应用配置基类，统一配置行为"""
     model_config = SettingsConfigDict(
-        env_file=str(Path(__file__).parent.parent / ".env"),
+        env_file=str(Path(__file__).parent.parent.parent / ".env"),
         env_file_encoding="utf-8",
         case_sensitive=False,
         populate_by_name=True,
@@ -224,7 +224,7 @@ class Config(BaseSettings):
     graph_rerank: GraphRerankConfig = GraphRerankConfig()
 
     model_config = SettingsConfigDict(
-        env_file=".env",
+        env_file=str(Path(__file__).parent.parent.parent / ".env"),
         env_file_encoding="utf-8",
         case_sensitive=False,
         extra="allow"  # 允许额外字段

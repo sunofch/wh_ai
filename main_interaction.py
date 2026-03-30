@@ -49,7 +49,7 @@ logger = logging.getLogger(__name__)
 class InstructionParser:
     def __init__(self):
         # 检查 vLLM 服务器状态
-        from src.vlm_server import get_vlm_server_manager
+        from src.vlm.server import get_vlm_server_manager
         server_mgr = get_vlm_server_manager()
 
         if not server_mgr.is_server_running():
@@ -77,7 +77,7 @@ class InstructionParser:
             mode = 'graph' if config.rag.graph_enabled else 'traditional'
             self.rag_enabled = initialize_rag_system(mode=mode)
             if self.rag_enabled:
-                from src.rag_manager import get_unified_rag_manager
+                from src.rag.manager import get_unified_rag_manager
                 self.rag_manager = get_unified_rag_manager()
 
         logger.info(f">>> 系统初始化完成 (VLM模型: {VLM_NAME})")
