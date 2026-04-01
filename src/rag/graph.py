@@ -29,6 +29,7 @@ from llama_index.core.indices.property_graph import (
     VectorContextRetriever,
     LLMSynonymRetriever,
 )
+from llama_index.core.node_parser import SentenceSplitter
 from llama_index.embeddings.huggingface import HuggingFaceEmbedding
 from llama_index.llms.deepseek import DeepSeek
 
@@ -144,6 +145,13 @@ class GraphRAGRetriever:
 
         logger.info(f"加载了 {len(documents)} 个文档")
 
+        # 创建节点解析器（使用 GraphRAG 专用分块配置）
+        splitter = SentenceSplitter(
+            chunk_size=config.graph_rag.chunk_size,
+            chunk_overlap=config.graph_rag.chunk_overlap
+        )
+        logger.info(f"GraphRAG 分块配置: chunk_size={config.graph_rag.chunk_size}, chunk_overlap={config.graph_rag.chunk_overlap}")
+
         # 创建提取器
         kg_extractors = create_kg_extractors(config.graph_rag, self.llm)
 
@@ -151,6 +159,7 @@ class GraphRAGRetriever:
         start_time = time.time()
         index = PropertyGraphIndex.from_documents(
             documents,
+            transformations=[splitter],
             kg_extractors=kg_extractors,
             show_progress=True
         )

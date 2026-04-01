@@ -31,4 +31,4 @@ env/
 .env
 
 # vLLM Server PID 文件
-.vlm_server.pid
+.vlm_server.piddocs/

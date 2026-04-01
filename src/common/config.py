@@ -163,6 +163,10 @@ class GraphRAGConfig(BaseAppConfig):
     deepseek_model: str = Field(default="deepseek-chat", alias="GRAPH_RAG_DEEPSEEK_MODEL")
     deepseek_temperature: float = Field(default=0.7, alias="GRAPH_RAG_DEEPSEEK_TEMPERATURE")
 
+    # GraphRAG 分块配置
+    chunk_size: int = Field(default=512, alias="GRAPH_RAG_CHUNK_SIZE")
+    chunk_overlap: int = Field(default=120, alias="GRAPH_RAG_CHUNK_OVERLAP")
+
     @field_validator('entity_hints', 'relation_hints', mode='before')
     @classmethod
     def parse_comma_separated(cls, v):

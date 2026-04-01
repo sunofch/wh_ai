@@ -344,28 +344,58 @@ VLM_MODEL_TYPE=qwen35 python main_interaction.py --text "需要5个电机"
 
 ```
 wh_graphrag_re/
-├── main_interaction.py    # 主要交互入口（推荐）
-├── main_rag.py            # RAG测试系统
-├── src/
-│   ├── asr.py            # Whisper语音识别
-│   ├── vlm.py            # 统一VLM入口（动态模型选择）
-│   ├── qwen2vlm.py       # Qwen2-VL实现（vLLM客户端）
-│   ├── qwen35vlm.py      # Qwen3.5-VLM实现（vLLM客户端）
-│   ├── vlm_server.py     # vLLM服务器管理
-│   ├── parser.py         # 结构化解析器
-│   ├── rag.py            # 传统RAG检索
-│   ├── rag_manager.py    # RAG统一管理器
-│   ├── graph_rag.py      # GraphRAG图谱检索
-│   ├── graph_extractors.py # 图谱提取器
-│   ├── config.py         # 配置管理（Pydantic）
-│   └── utils.py          # 工具函数
+├── main_interaction.py       # 主要交互入口（推荐）
+├── main_rag.py               # RAG测试系统
+├── main_warehouse.py         # 仓储调度系统启动脚本
+├── start_vlm_server.py       # vLLM服务器启动
+├── status_vlm_server.py      # vLLM服务器状态
+├── stop_vlm_server.py        # vLLM服务器停止
+├── src/                      # 核心源码（模块化）
+│   ├── asr/                  # 语音识别模块
+│   │   └── whisper.py        # Whisper ASR实现
+│   ├── vlm/                  # 视觉语言模型模块
+│   │   ├── router.py         # 统一VLM入口（动态模型选择）
+│   │   ├── qwen2.py          # Qwen2-VL实现（vLLM客户端）
+│   │   ├── qwen35.py         # Qwen3.5-VLM实现（vLLM客户端）
+│   │   └── server.py         # vLLM服务器管理
+│   ├── parser/               # 结构化解析模块
+│   │   └── parser.py         # PortInstruction解析器
+│   ├── rag/                  # RAG检索模块
+│   │   ├── manager.py        # RAG统一管理器
+│   │   ├── traditional.py    # 传统向量+BM25检索
+│   │   ├── graph.py          # GraphRAG知识图谱检索
+│   │   └── graph_extractors.py # 知识图谱提取器
+│   └── common/               # 公共模块
+│       ├── config.py         # 配置管理（Pydantic Settings）
+│       ├── reranker.py       # BGE Reranker统一服务
+│       └── utils.py          # 工具函数
+├── services/                 # 微服务目录（仓储调度MVP）
+│   ├── parser_service/       # 指令解析服务（端口8001）
+│   │   ├── main.py           # FastAPI入口
+│   │   └── converter.py      # PortInstruction→WarehouseTask
+│   ├── scheduler_service/    # 任务调度服务（端口8002）
+│   │   ├── main.py           # FastAPI入口
+│   │   ├── scheduler.py      # OR-Tools CP-SAT调度器
+│   │   ├── arbitrator.py     # VLM仲裁器
+│   │   └── conflict_detector.py # 冲突检测
+│   ├── simulation_service/   # 仿真执行服务（端口8003）
+│   │   ├── main.py           # FastAPI入口
+│   │   ├── gym_env.py        # Gymnasium环境
+│   │   └── agv_agent.py      # AGV智能体
+│   └── shared/               # 服务共享代码
+│       ├── models.py         # Pydantic数据模型
+│       ├── config.py         # 服务配置
+│       └── utils.py          # 工具函数
 ├── data/
-│   ├── knowledge_base/   # 知识库文档
-│   ├── vector_db/        # 向量数据库
-│   └── graph_db/         # 图谱数据库
-├── .env.example          # 环境变量模板
-├── requirements.txt      # 依赖列表
-└── README.md             # 项目文档
+│   ├── knowledge_base/       # 知识库文档（Markdown）
+│   ├── vector_db/            # 向量数据库
+│   └── graph_db/             # 图谱数据库
+├── docs/                     # 项目文档
+│   └── superpowers/          # 开发计划和规格文档
+├── .env.example              # 环境变量模板
+├── requirements.txt          # 依赖列表
+├── CLAUDE.md                 # Claude Code项目说明
+└── README.md                 # 项目文档
 ```
 
 ## 🔧 API使用示例
@@ -374,7 +404,7 @@ wh_graphrag_re/
 
 ```python
 from src.asr import get_asr_instance
-from src.vlm import get_vlm_instance  # 统一VLM接口
+from src.vlm import get_vlm_instance           # 统一VLM接口（自动选择模型）
 from src.parser import PortInstructionParser, PortInstruction
 
 # 创建解析器（模型使用LRU缓存自动管理）
@@ -413,7 +443,7 @@ print(result.to_dict())
 ### RAG集成
 
 ```python
-from src.rag_manager import initialize_rag_system, get_unified_rag_manager
+from src.rag import initialize_rag_system, get_unified_rag_manager
 
 # 初始化RAG系统（选择模式）
 success = initialize_rag_system(mode='graph')  # 或 'traditional'
@@ -438,7 +468,7 @@ if success:
 ### GraphRAG使用
 
 ```python
-from src.rag_manager import initialize_rag_system, get_unified_rag_manager
+from src.rag import initialize_rag_system, get_unified_rag_manager
 
 # 使用统一管理器初始化GraphRAG
 success = initialize_rag_system(mode='graph')
@@ -520,6 +550,65 @@ GRAPH_RAG_DEEPSEEK_API_KEY=your-key-here
    - 系统会自动使用 `json_repair` 修复常见格式问题
    - 失败时自动降级到规则解析
    - 可检查VLM输出的原始响应进行调试
+
+## 🏭 仓储调度微服务系统（MVP）
+
+项目包含一个完整的仓储调度微服务系统，实现了子课题4.2的核心功能。
+
+### 架构
+
+```
+用户输入: "3号传送带需要5个电机，紧急"
+    ↓
+┌──────────────────────────────────────────────────────────┐
+│ 指令解析服务 (localhost:8001)                             │
+│ - FastAPI + VLM/RAG复用                                   │
+│ - PortInstruction → WarehouseTask转换                     │
+└──────────────────────────────────────────────────────────┘
+    ↓
+┌──────────────────────────────────────────────────────────┐
+│ 任务调度服务 (localhost:8002)                             │
+│ - OR-Tools CP-SAT调度                                     │
+│ - 冲突检测 + VLM仲裁（阈值触发）                           │
+└──────────────────────────────────────────────────────────┘
+    ↓
+┌──────────────────────────────────────────────────────────┐
+│ 仿真执行服务 (localhost:8003)                             │
+│ - Gymnasium环境                                           │
+│ - AGV智能体执行                                           │
+└──────────────────────────────────────────────────────────┘
+```
+
+### 快速开始
+
+```bash
+# 启动所有服务
+python main_warehouse.py start
+
+# 启动单个服务
+python main_warehouse.py start --services parser_service
+
+# 健康检查
+curl http://localhost:8001/health
+curl http://localhost:8002/health
+curl http://localhost:8003/health
+
+# 运行集成测试
+python test_warehouse_system.py
+```
+
+### 核心功能
+
+| 功能 | 说明 |
+|------|------|
+| **OR-Tools调度器** | CP-SAT约束求解，支持容量/时间/电池约束 |
+| **冲突检测器** | 路径交叉、资源竞争、电池耗尽、容量超限 |
+| **VLM仲裁器** | 冲突时调用VLM分析并推荐解决方案 |
+| **Gymnasium环境** | 标准RL接口，支持强化学习集成 |
+
+详细文档见 [services/README.md](services/README.md)
+
+---
 
 ## 🤝 贡献指南
 

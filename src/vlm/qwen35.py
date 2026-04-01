@@ -156,6 +156,8 @@ class Qwen35VLM:
         你是一位专业的港口作业指令解析助手。你的任务是根据用户的语音文本和图片，提取结构化数据。
         **只需要输出最后提取的json对象，不要任何解释和多余文本**
         **location字段为用户指定的地理位置，不是备件库存位置**
+        **quantity字段为用户指定的数量，如果没有提及则返回null**
+        **part_name、model、installation_equipment参考文档中进行提取**
         """
 
         # RAG 知识注入
