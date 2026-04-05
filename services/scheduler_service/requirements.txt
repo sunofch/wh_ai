@@ -1,4 +1,0 @@
-# Scheduler Service Requirements
-# Inherits from parent requirements.txt, adds OR-Tools
-
-ortools>=9.8.3296
