@@ -63,7 +63,7 @@ PortInstruction结构化输出
 ### 1. 环境要求
 
 - Python 3.8+
-- PyTorch 2.0+（支持CUDA 12.4）
+- PyTorch 2.10+（支持CUDA 12.8）
 - FFmpeg（音频处理）
 - 可选：sounddevice（实时录音）
 
@@ -77,8 +77,8 @@ cd wh_ai
 # 安装核心依赖
 pip install -r requirements.txt
 
-# 安装PyTorch（推荐CUDA 12.4）
-pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu124
+# 安装PyTorch（推荐CUDA 12.8）
+pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu128
 
 # 安装FFmpeg（Linux）
 sudo apt-get install ffmpeg
@@ -90,7 +90,7 @@ winget install "FFmpeg (Essentials Build)"
 pip install qwen-vl-utils>=0.0.4
 
 # 安装vLLM（高性能推理引擎）
-pip install vllm>=0.6.1
+pip install vllm>=0.18.0
 
 # 可选：实时录音支持
 pip install sounddevice soundfile numpy
@@ -346,7 +346,7 @@ VLM_MODEL_TYPE=qwen35 python main_interaction.py --text "需要5个电机"
 wh_graphrag_re/
 ├── main_interaction.py       # 主要交互入口（推荐）
 ├── main_rag.py               # RAG测试系统
-├── main_warehouse.py         # 仓储调度系统启动脚本
+├── test_rag_context.py       # RAG上下文注入测试
 ├── start_vlm_server.py       # vLLM服务器启动
 ├── status_vlm_server.py      # vLLM服务器状态
 ├── stop_vlm_server.py        # vLLM服务器停止
@@ -369,32 +369,12 @@ wh_graphrag_re/
 │       ├── config.py         # 配置管理（Pydantic Settings）
 │       ├── reranker.py       # BGE Reranker统一服务
 │       └── utils.py          # 工具函数
-├── services/                 # 微服务目录（仓储调度MVP）
-│   ├── parser_service/       # 指令解析服务（端口8001）
-│   │   ├── main.py           # FastAPI入口
-│   │   └── converter.py      # PortInstruction→WarehouseTask
-│   ├── scheduler_service/    # 任务调度服务（端口8002）
-│   │   ├── main.py           # FastAPI入口
-│   │   ├── scheduler.py      # OR-Tools CP-SAT调度器
-│   │   ├── arbitrator.py     # VLM仲裁器
-│   │   └── conflict_detector.py # 冲突检测
-│   ├── simulation_service/   # 仿真执行服务（端口8003）
-│   │   ├── main.py           # FastAPI入口
-│   │   ├── gym_env.py        # Gymnasium环境
-│   │   └── agv_agent.py      # AGV智能体
-│   └── shared/               # 服务共享代码
-│       ├── models.py         # Pydantic数据模型
-│       ├── config.py         # 服务配置
-│       └── utils.py          # 工具函数
 ├── data/
 │   ├── knowledge_base/       # 知识库文档（Markdown）
 │   ├── vector_db/            # 向量数据库
 │   └── graph_db/             # 图谱数据库
-├── docs/                     # 项目文档
-│   └── superpowers/          # 开发计划和规格文档
 ├── .env.example              # 环境变量模板
 ├── requirements.txt          # 依赖列表
-├── CLAUDE.md                 # Claude Code项目说明
 └── README.md                 # 项目文档
 ```
 
@@ -529,7 +509,7 @@ GRAPH_RAG_DEEPSEEK_API_KEY=your-key-here
 1. **模型加载失败**
    - 检查网络连接和磁盘空间（BGE-M3: ~2.3GB, Qwen2-VL: ~5GB）
    - 尝试使用CPU模式：设置 `ASR_DEVICE=cpu` 和 `VLM_DEVICE=cpu`
-   - 验证PyTorch版本兼容性（推荐CUDA 12.4）
+   - 验证PyTorch版本兼容性（推荐CUDA 12.8）
 
 2. **RAG检索失败**
    - 确认 `data/knowledge_base/` 目录存在且包含.md文档
@@ -550,65 +530,6 @@ GRAPH_RAG_DEEPSEEK_API_KEY=your-key-here
    - 系统会自动使用 `json_repair` 修复常见格式问题
    - 失败时自动降级到规则解析
    - 可检查VLM输出的原始响应进行调试
-
-## 🏭 仓储调度微服务系统（MVP）
-
-项目包含一个完整的仓储调度微服务系统，实现了子课题4.2的核心功能。
-
-### 架构
-
-```
-用户输入: "3号传送带需要5个电机，紧急"
-    ↓
-┌──────────────────────────────────────────────────────────┐
-│ 指令解析服务 (localhost:8001)                             │
-│ - FastAPI + VLM/RAG复用                                   │
-│ - PortInstruction → WarehouseTask转换                     │
-└──────────────────────────────────────────────────────────┘
-    ↓
-┌──────────────────────────────────────────────────────────┐
-│ 任务调度服务 (localhost:8002)                             │
-│ - OR-Tools CP-SAT调度                                     │
-│ - 冲突检测 + VLM仲裁（阈值触发）                           │
-└──────────────────────────────────────────────────────────┘
-    ↓
-┌──────────────────────────────────────────────────────────┐
-│ 仿真执行服务 (localhost:8003)                             │
-│ - Gymnasium环境                                           │
-│ - AGV智能体执行                                           │
-└──────────────────────────────────────────────────────────┘
-```
-
-### 快速开始
-
-```bash
-# 启动所有服务
-python main_warehouse.py start
-
-# 启动单个服务
-python main_warehouse.py start --services parser_service
-
-# 健康检查
-curl http://localhost:8001/health
-curl http://localhost:8002/health
-curl http://localhost:8003/health
-
-# 运行集成测试
-python test_warehouse_system.py
-```
-
-### 核心功能
-
-| 功能 | 说明 |
-|------|------|
-| **OR-Tools调度器** | CP-SAT约束求解，支持容量/时间/电池约束 |
-| **冲突检测器** | 路径交叉、资源竞争、电池耗尽、容量超限 |
-| **VLM仲裁器** | 冲突时调用VLM分析并推荐解决方案 |
-| **Gymnasium环境** | 标准RL接口，支持强化学习集成 |
-
-详细文档见 [services/README.md](services/README.md)
-
----
 
 ## 🤝 贡献指南
 
