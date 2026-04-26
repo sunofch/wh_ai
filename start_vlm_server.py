@@ -3,14 +3,11 @@
 
 独立启动 vLLM 服务器进程，保存 PID 文件，实时显示日志
 """
-import json
 import logging
 import os
-import signal
 import subprocess
 import sys
 import time
-from typing import Optional
 
 # 配置日志
 logging.basicConfig(
@@ -80,40 +77,6 @@ def is_port_available(port: int) -> bool:
             return False
 
 
-def forward_logs(process: subprocess.Popen):
-    """实时转发服务器日志到控制台
-
-    Args:
-        process: 服务器进程对象
-    """
-    logger.info("========== vLLM 服务器日志 ==========")
-    logger.info("（日志将在后台运行，按 Ctrl+C 停止服务器）")
-
-    # 简化版本：只转发 stdout，不阻塞
-    # 用户可以通过 Ctrl+C 停止，信号处理在 main() 函数中
-    try:
-        # 非阻塞读取并输出
-        import threading
-
-        def read_output():
-            """在后台线程中读取输出"""
-            while True:
-                if process.poll() is not None:
-                    break
-                if process.stdout:
-                    line = process.stdout.readline()
-                    if line:
-                        print(line, end='')
-
-        # 启动后台线程
-        thread = threading.Thread(target=read_output, daemon=True)
-        thread.start()
-        thread.join()  # 等待线程结束（进程退出或 Ctrl+C）
-
-    except KeyboardInterrupt:
-        logger.info("\n收到停止信号，正在停止服务器...")
-
-
 def main():
     """主函数"""
     # 读取配置
@@ -156,13 +119,13 @@ def main():
         cmd.extend(['--max-model-len', str(config.vllm_server.max_model_len)])
 
     logger.info(f"等待服务器就绪（最多 {config.vllm_server.startup_timeout} 秒）...")
+    logger.info("========== vLLM 服务器启动 ==========")
 
-    # 启动服务器
+    # 启动服务器（输出直接到终端，不经过管道）
     process = subprocess.Popen(
         cmd,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        text=True
+        stdout=None,
+        stderr=None,
     )
 
     # 等待服务器健康检查通过
@@ -175,11 +138,6 @@ def main():
             elapsed = int(time.time() - start_time)
             logger.info(f"✓ vLLM 服务器启动成功 (PID: {process.pid}, 耗时: {elapsed}秒)")
             break
-
-        # 每 10 秒显示一次进度
-        elapsed = int(time.time() - start_time)
-        if elapsed % 10 == 0 and elapsed > 0:
-            logger.info(f"  等待中... {elapsed}/{max_wait} 秒")
     else:
         # 启动超时
         process.terminate()
@@ -196,8 +154,7 @@ def main():
     logger.info(f"按 Ctrl+C 停止服务器")
 
     try:
-        # 实时转发日志
-        forward_logs(process)
+        process.wait()
     except KeyboardInterrupt:
         logger.info("\n正在停止服务器...")
         process.terminate()

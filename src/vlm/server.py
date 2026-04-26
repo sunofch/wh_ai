@@ -95,7 +95,7 @@ class VLLMServerManager:
         process = subprocess.Popen(
             cmd,
             stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
             text=True
         )
 
@@ -111,17 +111,15 @@ class VLLMServerManager:
 
         # 启动失败 - 捕获错误输出
         try:
-            stdout, stderr = process.communicate(timeout=1)
+            output, _ = process.communicate(timeout=1)
         except:
-            stdout, stderr = process.stdout.read(), process.stderr.read()
+            output = process.stdout.read() if process.stdout else ""
 
         self.stop_server(model_type)
 
         error_msg = f"vLLM服务器 {model_type} 启动超时（等待{max_wait}秒）"
-        if stderr:
-            error_msg += f"\n错误输出:\n{stderr[-500:]}"  # 最后500字符
-        if stdout:
-            error_msg += f"\n输出:\n{stdout[-500:]}"
+        if output:
+            error_msg += f"\n输出:\n{output[-500:]}"
 
         # 提供诊断建议
         error_msg += f"\n\n诊断建议:"
