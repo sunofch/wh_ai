@@ -2,7 +2,7 @@
 
 > 日期: 2026-04-27
 > 分支: feature/agv-scheduling-v2
-> 状态: 设计确认，待实施
+> 状态: 设计确认（已修正审查问题），待实施
 
 ---
 
@@ -667,19 +667,222 @@ pillow>=10.0.0
 
 ---
 
-## 12. 风险评估
+## 12. PortInstruction → WorkOrder 映射（审查补充）
+
+### 12.1 字段映射规则
+
+| PortInstruction字段 | WorkOrder/OrderItem字段 | 映射逻辑 |
+|---------------------|------------------------|----------|
+| `part_name` | `OrderItem.part_name` | 直接映射 |
+| `model` | `OrderItem.model` | 零件型号（主键），用于查询InventoryItem定位储位 |
+| `quantity` | `OrderItem.quantity` | 直接映射 |
+| `action_required` | `OrderItem.task_type` | "更换"/"领取"/"出库" → OUTBOUND; "入库"/"补充"/"补货" → INBOUND; 其他默认 OUTBOUND |
+| `location` | `OrderItem.target_location` | 自由文本，记录目标但不参与储位解析 |
+| `installation_equipment` | 不直接映射 | 辅助信息，记录在WorkOrder.metadata中 |
+| `description` | 不直接映射 | 辅助信息，记录在WorkOrder.metadata中 |
+
+### 12.2 空字段处理
+
+- `model` 为 None 时：按 `part_name` 模糊匹配库存，仍无结果则返回错误提示
+- `quantity` 为 None 时：默认为 1
+- `action_required` 为 None 时：默认为 OUTBOUND（领料场景为主）
+- 所有字段均为 None 时：拒绝生成工单，提示重新输入
+
+### 12.3 model字段语义统一
+
+`InventoryItem.model` = 零件型号（如 "M200", "HYD-500"），是库存查询的主键。
+`OrderItem.model` = 同零件型号，用于关联库存。
+初始库存由地图配置决定，各储位预填随机零件型号和数量（仿真模式）。
+实际部署时对接真实WMS数据。
+
+### 12.4 映射示例
+
+```
+输入: PortInstruction(part_name="电机", model="M200", quantity=5,
+                      action_required="领取", location="1号桥吊")
+
+处理流程:
+1. task_type = "领取" → OUTBOUND
+2. InventoryManager.query_by_model("M200") → InventoryItem(location="Raw1_S2", quantity=12)
+3. InventoryManager.allocate_stock("M200", 5) → "Raw1_S2" (库存扣减为7)
+4. 出库端口选择 → "出库南"
+
+输出: WorkOrder(order_id=1, source="vlm", priority=NORMAL, items=[
+    OrderItem(task_type=OUTBOUND, model="M200", part_name="电机", quantity=5,
+              pick="Raw1_S2", dest="出库南", target_location="1号桥吊")
+])
+```
+
+---
+
+## 13. 系统初始化与生命周期（审查补充）
+
+### 13.1 初始化顺序
+
+由于WES层聚类需要Fleet层PathFinder的距离数据，实际初始化顺序为：
+
+```
+1. WarehouseConfig        ← 加载配置
+2. MapConfig              ← 选择地图
+3. WarehouseMap           ← 构建地图（所有层共享）
+4. PathFinder             ← 预计算路径缓存
+5. InventoryManager       ← 初始化库存
+6. OrderManager           ← 依赖 InventoryManager
+7. TaskDecomposer         ← 依赖 InventoryManager
+8. OrderClusterer         ← 依赖 PathFinder（距离计算）
+9. TSPSolver              ← 依赖 PathFinder
+10. TaskAllocator         ← 依赖 PathFinder + TSPSolver
+11. ConflictManager       ← 依赖 WarehouseMap
+12. ChargingScheduler     ← 依赖 PathFinder + WarehouseMap
+13. FleetManager          ← 编排 4-12 所有Fleet子模块
+14. Simulator             ← 依赖 FleetManager
+15. Visualizer            ← 依赖 WarehouseMap
+```
+
+### 13.2 依赖注入方式
+
+`Simulator`（或 `main_agv.py` 中的 `AGVSystemApp`）负责按上述顺序创建所有组件，通过构造函数注入。不使用全局变量或服务定位器。
+
+### 13.3 SpaceTimeTable所有权
+
+`SpaceTimeTable` 由 `PathFinder` 内部创建并持有。`ConflictManager` 和 `MetricsCollector` 通过方法参数或构造函数注入获取引用。`PathFinder` 是唯一创建者。
+
+---
+
+## 14. 充电编排流程（审查补充）
+
+### 14.1 Simulator与ChargingScheduler交互
+
+```python
+# Simulator._execute_agv_trajectory 伪代码
+for task in agv.assigned_tasks:
+    # 检查电量
+    if agv.battery < config.AGV_LOW_BATTERY_THRESHOLD:
+        # 1. 充电调度器计算最近充电桩 + 路径
+        charge_path, charge_end_t = charging.plan_charging(
+            agv.state, agv.current_pos, current_t
+        )
+        # 2. 记录移动到充电桩
+        current_t = agv.record_path(charge_path, current_t, "moving_to_charge", -1)
+        # 3. 记录充电等待
+        current_t = agv.record_wait(charge_pos, current_t, config.AGV_CHARGE_TIME, "charging", -1)
+        # 4. 恢复电量
+        agv.charge_full()
+        agv.current_pos = charge_pos
+
+    # 正常任务执行...
+    path_to_pick = pathfinder.find_path(...)
+    current_t = agv.record_path(path_to_pick, current_t, "moving_empty", task.task_id)
+    agv.consume_battery(len(path_to_pick))
+    # ... 装载、移动、卸载 ...
+```
+
+关键：ChargingScheduler 只返回数据和路径，不修改AGV状态。状态变更全由Simulator通过AGV对象方法完成。
+
+---
+
+## 15. 消融开关传播（审查补充）
+
+### 15.1 AblationFlags
+
+```python
+class AblationFlags(BaseModel):
+    """消融实验开关，放在 models.py 中"""
+    enable_path_cache: bool = True      # M1: PathFinder缓存
+    enable_clustering: bool = True      # M2: OrderClusterer
+    enable_tsp: bool = True             # M3: TSPSolver
+    enable_cp_sat: bool = True          # M4: TaskAllocator CP-SAT
+    enable_conflict_avoid: bool = True  # M5: ConflictManager
+```
+
+### 15.2 传播方式
+
+- `AblationFlags` 作为 `WarehouseConfig` 的子字段
+- 各模块在构造时接收 `config`，内部读取对应标志
+- 禁用时降级行为：
+  - M1关：每次都重新计算路径
+  - M2关：每个订单独立为单任务簇
+  - M3关：按优先级排序替代TSP
+  - M4关：贪心分配替代CP-SAT
+  - M5关：忽略冲突路段，直线路径
+
+---
+
+## 16. 目录迁移（审查补充）
+
+### 16.1 现有目录清理
+
+`src/warehouse/` 当前仅有 `__pycache__/` 目录（源码已被删除）。
+实施时先清理所有 `__pycache__/` 目录，然后按新结构创建。
+
+### 16.2 清理命令
+
+```bash
+find src/warehouse/ -name "__pycache__" -type d -exec rm -rf {} +
+```
+
+---
+
+## 17. 其他修正（审查补充）
+
+### 17.1 Pydantic v2配置风格
+
+```python
+class WarehouseConfig(BaseSettings):
+    model_config = SettingsConfigDict(env_prefix="WH_")
+    # ... 字段 ...
+```
+
+### 17.2 AGV颜色循环
+
+```python
+# VisualStyle
+AGV_COLORS = ["#E74C3C", "#3498DB", "#2ECC71", "#F39C12",
+              "#9B59B6", "#1ABC9C", "#E91E63", "#8BC34A"]
+# 使用时：AGV_COLORS[i % len(AGV_COLORS)] 循环取色
+```
+
+### 17.3 字体回退链
+
+```python
+TITLE_FONT = {"family": ["SimHei", "DejaVu Sans"], "size": 16, "weight": "bold"}
+```
+
+### 17.4 移除time.sleep
+
+原始代码中 `ConflictScheduler.request_yield()` 的 `time.sleep(0.05)` 在仿真中无意义（基于时间步规划，非实时执行）。重构后移除所有 `time.sleep` 调用。
+
+### 17.5 极端地图统一在extreme.py
+
+三个极端变体（extreme_corner, extreme_corridor, extreme_cluster）统一放在 `extreme.py` 一个文件中，每个是独立的类。
+
+### 17.6 ResultExporter类型注解
+
+```python
+class ResultExporter:
+    @staticmethod
+    def export_json(result: SimulationResult, path: str) -> None: ...
+    @staticmethod
+    def export_summary(result: SimulationResult, path: str) -> None: ...
+    @staticmethod
+    def export_trajectory(result: SimulationResult, path: str) -> None: ...
+```
+
+---
+
+## 18. 风险评估
 
 | 风险 | 等级 | 缓解措施 |
 |------|------|----------|
 | OR-Tools版本兼容性 | 中 | time_limit使用整数秒，已验证 |
-| Pydantic v2序列化tuple | 低 | 使用 JsonSchema 序列化或手动转换 |
+| Pydantic v2序列化tuple | 低 | 使用 SettingsConfigDict，tuple字段作为不可配置常量 |
 | 大地图(100x100)性能 | 中 | 路径缓存预计算，CP-SAT限时 |
 | ffmpeg缺失导致MP4导出失败 | 低 | 降级为GIF，提示安装 |
-| 循环依赖(WES需要Fleet距离) | 低 | 构造函数注入，FleetManager编排 |
+| PortInstruction空字段 | 中 | 默认值+模糊匹配+错误提示（见12.2节） |
 
 ---
 
-## 13. 验收标准
+## 19. 验收标准
 
 1. `main_agv.py` 五种模式均可运行
 2. `main_simulation.py` 消融实验结果与原代码一致（makespan误差 <5%）
