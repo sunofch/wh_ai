@@ -33,3 +33,7 @@ vllm>=0.18.0
 
 # HTTP客户端
 requests>=2.31.0
+
+# AGV调度系统
+ortools>=9.8.3296
+matplotlib>=3.7.0

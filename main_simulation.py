@@ -1,0 +1,110 @@
+# main_simulation.py
+"""纯仿真测试入口（不依赖VLM/Parser）"""
+
+import sys
+import time
+import numpy as np
+import random
+
+from src.warehouse.maps.base import MapRegistry
+from src.warehouse.fleet.map_builder import WarehouseMap
+from src.warehouse.fleet.fleet_manager import FleetManager
+from src.warehouse.wms.config import WarehouseConfig
+from src.warehouse.wms.order_manager import OrderManager
+from src.warehouse.wes.task_decomposer import TaskDecomposer
+from src.warehouse.wes.clustering import OrderClusterer
+from src.warehouse.simulation.simulator import Simulator
+from src.warehouse.simulation.metrics import MetricsCollector
+from src.warehouse.simulation.visualizer import Visualizer, ResultExporter
+from src.warehouse.models import AblationFlags
+
+# 注册所有地图
+import src.warehouse.maps.medium_50x50  # noqa: F401
+import src.warehouse.maps.large_100x100  # noqa: F401
+import src.warehouse.maps.extreme  # noqa: F401
+
+
+def run_single(config: WarehouseConfig, map_name: str, order_num: int):
+    """运行单次仿真"""
+    map_config = MapRegistry.get(map_name)
+    wmap = WarehouseMap(map_config)
+
+    fleet = FleetManager(wmap, config)
+    fleet.precompute()
+
+    om = OrderManager(map_config, seed=config.RANDOM_SEED)
+    orders = om.from_random(order_num)
+
+    td = TaskDecomposer(None, om.inbound_ports, om.outbound_ports, seed=config.RANDOM_SEED)
+    tasks = td.decompose(orders, wmap.storage_list)
+
+    clusterer = OrderClusterer(fleet.path_finder, config)
+    clusters = clusterer.cluster(tasks, config.AGV_MAX_TASK_CAPACITY, wmap.zone_pos)
+
+    agv_tasks, makespan = fleet.schedule(clusters)
+
+    sim = Simulator(wmap, fleet, config)
+    result = sim.run(agv_tasks, makespan)
+    return result, wmap, sim
+
+
+def run_ablation(config: WarehouseConfig, map_name: str, order_num: int):
+    """消融实验"""
+    ablation_groups = [
+        {"name": "Baseline (无优化)", "flags": AblationFlags(enable_path_cache=False, enable_clustering=False, enable_tsp=False, enable_cp_sat=False, enable_conflict_avoid=False)},
+        {"name": "M1 (路径缓存)", "flags": AblationFlags(enable_clustering=False, enable_tsp=False, enable_cp_sat=False, enable_conflict_avoid=False)},
+        {"name": "M1+M2 (+聚类)", "flags": AblationFlags(enable_tsp=False, enable_cp_sat=False, enable_conflict_avoid=False)},
+        {"name": "M1+M2+M3 (+TSP)", "flags": AblationFlags(enable_cp_sat=False, enable_conflict_avoid=False)},
+        {"name": "M1+M2+M3+M4 (+CP-SAT)", "flags": AblationFlags(enable_conflict_avoid=False)},
+        {"name": "Full (全模块)", "flags": AblationFlags()},
+    ]
+
+    results = {}
+    for group in ablation_groups:
+        print(f"\n{'='*60}")
+        print(f"  运行: {group['name']}")
+        print(f"{'='*60}")
+        cfg = WarehouseConfig(ablation=group["flags"], ORDER_NUM=order_num, RANDOM_SEED=config.RANDOM_SEED)
+        result, _, _ = run_single(cfg, map_name, order_num)
+        results[group["name"]] = result
+        print(f"  makespan: {result.makespan} | 距离: {result.total_distance} | 利用率: {result.agv_utilization:.2%} | 耗时: {result.planning_time:.2f}s")
+
+    print(f"\n{'='*100}")
+    print("消融实验结果对比")
+    print(MetricsCollector.compare(results))
+    print(f"{'='*100}")
+    return results
+
+
+if __name__ == "__main__":
+    print("=" * 60)
+    print("  AGV 智能仓储调度系统 v2.0 — 仿真测试")
+    print("=" * 60)
+
+    config = WarehouseConfig()
+
+    if len(sys.argv) > 1 and sys.argv[1] == "--ablation":
+        map_name = sys.argv[2] if len(sys.argv) > 2 else config.MAP_NAME
+        order_num = int(sys.argv[3]) if len(sys.argv) > 3 else config.ORDER_NUM
+        results = run_ablation(config, map_name, order_num)
+    else:
+        map_name = sys.argv[1] if len(sys.argv) > 1 else config.MAP_NAME
+        order_num = int(sys.argv[2]) if len(sys.argv) > 2 else config.ORDER_NUM
+
+        print(f"  地图: {map_name} | 订单数: {order_num}")
+        np.random.seed(config.RANDOM_SEED)
+        random.seed(config.RANDOM_SEED)
+
+        result, wmap, sim = run_single(config, map_name, order_num)
+
+        print(f"\n  Makespan: {result.makespan}")
+        print(f"  总距离: {result.total_distance}")
+        print(f"  AGV利用率: {result.agv_utilization:.2%}")
+        print(f"  规划耗时: {result.planning_time:.2f}s")
+        print(f"  冲突次数: {result.conflict_count}")
+
+        # 可视化
+        viz = Visualizer(wmap, config)
+        viz.export_static_plots(sim.get_agvs(), result.makespan, output_dir="output/")
+        ResultExporter.export_json(result, "output/result.json")
+        print("\n  输出已保存到 output/")
