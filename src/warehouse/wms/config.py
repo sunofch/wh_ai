@@ -41,10 +41,5 @@ class WarehouseConfig(BaseSettings):
     # 随机种子
     RANDOM_SEED: int = 42
 
-    # 可视化
-    FIG_SIZE: tuple[int, int] = (22, 18)
-    FIG_DPI: int = 100
-    ANIM_INTERVAL: int = 30
-
     # 消融开关
     ablation: AblationFlags = AblationFlags()

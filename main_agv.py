@@ -15,7 +15,6 @@ from src.warehouse.wes.task_decomposer import TaskDecomposer
 from src.warehouse.wes.clustering import OrderClusterer
 from src.warehouse.simulation.simulator import Simulator
 from src.warehouse.simulation.metrics import MetricsCollector
-from src.warehouse.simulation.visualizer import Visualizer, ResultExporter
 from src.warehouse.models import WorkOrder
 
 # 注册所有地图
@@ -36,7 +35,6 @@ class AGVSystemApp:
         self.inventory = InventoryManager(map_config, seed=self.config.RANDOM_SEED)
         self.fleet = FleetManager(self.wmap, self.config)
         self.order_manager = OrderManager(map_config, seed=self.config.RANDOM_SEED)
-        self.visualizer = Visualizer(self.wmap, self.config)
 
     def _run_schedule(self, orders: list[WorkOrder]) -> None:
         self.fleet.precompute()
@@ -62,10 +60,7 @@ class AGVSystemApp:
         print(f"  规划耗时: {result.planning_time:.2f}s")
         print(f"  {'─'*40}")
 
-        self.visualizer.export_static_plots(
-            sim.get_agvs(), result.makespan, "output/"
-        )
-        ResultExporter.export_json(result, "output/result.json")
+        MetricsCollector.export_json(result, "output/result.json")
 
     def run_interactive_mode(self):
         print("\n  [单条指令模式] 输入自然语言指令（输入 q 返回）")

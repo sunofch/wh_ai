@@ -68,7 +68,6 @@ from src.warehouse.wes.task_decomposer import TaskDecomposer
 from src.warehouse.wes.clustering import OrderClusterer
 from src.warehouse.simulation.simulator import Simulator
 from src.warehouse.simulation.metrics import MetricsCollector
-from src.warehouse.simulation.visualizer import Visualizer, ResultExporter
 from src.warehouse.models import AblationFlags
 
 # 注册所有地图
@@ -135,9 +134,6 @@ if __name__ == "__main__":
     config = WarehouseConfig()
 
     args = sys.argv[1:]
-    gen_mp4 = "--mp4" in args
-    if gen_mp4:
-        args.remove("--mp4")
 
     if len(args) > 0 and args[0] == "--ablation":
         map_name = args[1] if len(args) > 1 else config.MAP_NAME
@@ -159,11 +155,5 @@ if __name__ == "__main__":
         print(f"  规划耗时: {result.planning_time:.2f}s")
         print(f"  冲突次数: {result.conflict_count}")
 
-        # 可视化
-        viz = Visualizer(wmap, config)
-        viz.export_static_plots(sim.get_agvs(), result.makespan, output_dir="output/")
-        if gen_mp4:
-            print("  生成MP4动画...")
-            viz.export_mp4(sim.get_agvs(), result.makespan)
-        ResultExporter.export_json(result, "output/result.json")
-        print("\n  输出已保存到 output/")
+        MetricsCollector.export_json(result, "output/result.json")
+        print("\n  结果已保存到 output/result.json")

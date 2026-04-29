@@ -65,6 +65,15 @@ class MetricsCollector:
         )
 
     @staticmethod
+    def export_json(result: SimulationResult, path: str) -> None:
+        import json
+        from pathlib import Path
+        data = result.model_dump(exclude={"agv_trajectories"})
+        Path(path).parent.mkdir(parents=True, exist_ok=True)
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(data, f, ensure_ascii=False, indent=2)
+
+    @staticmethod
     def compare(results: dict[str, SimulationResult]) -> str:
         lines = []
         header = f"{'实验':<35}"
