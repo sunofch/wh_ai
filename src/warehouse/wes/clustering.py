@@ -22,12 +22,9 @@ class OrderClusterer:
         self.config = config
 
     def _get_zone(self, location: str) -> str:
-        if "Raw" in location:
-            return "Raw"
-        if "Finished" in location:
-            return "Finished"
-        if "Spare" in location:
-            return "Spare"
+        parts = location.split("_")
+        if parts:
+            return parts[0]
         return "Unknown"
 
     def _group_by_order(self, tasks: list[TransportTask]) -> list[list[TransportTask]]:
