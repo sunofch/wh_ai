@@ -127,62 +127,216 @@ class Visualizer:
         plt.rcParams["axes.unicode_minus"] = False
 
     def plot_base_map(self) -> plt.Figure:
-        fig, ax = plt.subplots(1, 1, figsize=self.config.FIG_SIZE, dpi=self.config.FIG_DPI)
+        cfg = self.config
+        fig = plt.figure(figsize=cfg.FIG_SIZE, dpi=cfg.FIG_DPI)
+
+        # 标题区
+        fig.text(0.42, 0.96, "AGV 仓库仿真地图",
+                 ha="center", va="center", **VisualStyle.TITLE_FONT, color="#212121")
+        subtitle = (f"{self.wmap.config.display_name} | "
+                    f"{self.wmap.config.grid_size}×{self.wmap.config.grid_size} | "
+                    f"{self.wmap.config.agv_count} 台 AGV")
+        fig.text(0.42, 0.935, subtitle,
+                 ha="center", va="center", **VisualStyle.SUBTITLE_FONT, color="#757575")
+
+        # GridSpec: 地图主区域(左) + 图例区域(右)
+        gridspec = fig.add_gridspec(1, 2, width_ratios=[1, 0.12],
+                                    left=0.04, right=0.98, top=0.91, bottom=0.04,
+                                    wspace=0.02)
+        ax = fig.add_subplot(gridspec[0, 0])
+        ax_legend = fig.add_subplot(gridspec[0, 1])
+        ax_legend.set_axis_off()
+
         grid = self.wmap.grid
-        gs = self.wmap.config.grid_size
+        gsize = self.wmap.config.grid_size
 
-        # 画网格（按格子类型着色）
-        CELL_COLORS = {
-            1: VisualStyle.ROAD_COLOR,        # PASSABLE
-            2: VisualStyle.STORAGE_COLOR,     # STORAGE
-            3: "#BBDEFB",                     # PORT
-            4: "#80CBC4",                     # YIELD_POINT
-            5: "#FFF176",                     # CHARGING
-            6: VisualStyle.AISLE_DOWN_COLOR,  # AISLE_DOWN
-            7: VisualStyle.AISLE_UP_COLOR,    # AISLE_UP
-            8: VisualStyle.SUB_AISLE_COLOR,   # SUB_AISLE
-        }
-        for y in range(gs):
-            for x in range(gs):
+        # 画格子（按类型着色）
+        for y in range(gsize):
+            for x in range(gsize):
                 cell = grid[y, x]
-                color = CELL_COLORS.get(cell, VisualStyle.OBSTACLE_COLOR)
-                ax.add_patch(patches.Rectangle((x - 0.5, y - 0.5), 1, 1,
-                                               facecolor=color, edgecolor="none"))
+                color = VisualStyle.CELL_COLORS.get(cell, VisualStyle.OBSTACLE_COLOR)
+                ax.add_patch(patches.Rectangle(
+                    (x - 0.5, y - 0.5), 1, 1,
+                    facecolor=color, edgecolor="none"))
 
-        # 画货架区域
-        for name, zcfg in self.wmap.config.rack_zones.items():
-            sx, sy = zcfg.pos
-            w, h = zcfg.height, zcfg.width
-            color = VisualStyle.ZONE_COLORS.get(name, "#E0E0E0")
-            ax.add_patch(patches.Rectangle((sx - 0.5, sy - 0.5), w, h,
-                                           facecolor=color, edgecolor="#555",
-                                           linewidth=1.5, alpha=0.4))
-            ax.text(sx + w / 2, sy + h / 2, name, ha="center", va="center",
-                    color="#333", **{k: v for k, v in VisualStyle.LABEL_FONT.items() if k != "size"})
+        # 画货架区域（边框 + 纹理 + 标签）
+        self._draw_rack_zones(ax)
 
         # 画端口
         for name, pcfg in self.wmap.port_info.items():
             x1, x2, y1, y2 = pcfg["area"]
-            colors = VisualStyle.PORT_COLORS.get(pcfg["type"],
-                                                  {"fill": "#E0E0E0", "edge": "#757575", "label": "#333"})
-            ax.add_patch(patches.Rectangle((x1 - 0.5, y1 - 0.5), x2 - x1, y2 - y1,
-                                           facecolor=colors["fill"], edgecolor=colors["edge"],
-                                           linewidth=2, alpha=0.7))
+            colors = VisualStyle.PORT_COLORS.get(
+                pcfg["type"], {"fill": "#E0E0E0", "edge": "#757575", "label": "#333"})
+            ax.add_patch(patches.Rectangle(
+                (x1 - 0.5, y1 - 0.5), x2 - x1, y2 - y1,
+                facecolor=colors["fill"], edgecolor=colors["edge"],
+                linewidth=2, alpha=0.7))
             ax.text((x1 + x2) / 2, (y1 + y2) / 2,
                     VisualStyle.PORT_LABELS.get(name, name),
                     ha="center", va="center",
                     color=colors["label"], **VisualStyle.LABEL_FONT)
 
-        # 画充电桩
+        # 画充电桩（方形标记）
         for pos in self.wmap.charging_points:
-            ax.plot(pos[0], pos[1], "s", color=VisualStyle.CHARGE_COLOR,
-                    markersize=10, markeredgecolor="#F9A825", markeredgewidth=1.5)
+            ax.add_patch(patches.Rectangle(
+                (pos[0] - 0.6, pos[1] - 0.6), 1.2, 1.2,
+                facecolor=VisualStyle.CHARGE_FILL,
+                edgecolor=VisualStyle.CHARGE_EDGE,
+                linewidth=1.5, zorder=4))
 
-        ax.set_xlim(-1, gs)
-        ax.set_ylim(gs, -1)
+        # 方位标识 N（右上角）
+        ax.plot(gsize - 2, 1.5, "o", markersize=14,
+                markerfacecolor="white", markeredgecolor="#9E9E9E",
+                markeredgewidth=1.5, zorder=6)
+        ax.text(gsize - 2, 1.5, "N", ha="center", va="center",
+                fontsize=8, fontweight="bold", color="#757575", zorder=7)
+
+        # 比例尺（底部居中）
+        scale_x = gsize / 2 - 5
+        scale_y = gsize - 1.5
+        ax.plot([scale_x, scale_x + 10], [scale_y, scale_y],
+                color="#757575", linewidth=2, zorder=6)
+        ax.plot([scale_x, scale_x], [scale_y - 0.5, scale_y + 0.5],
+                color="#757575", linewidth=1.5, zorder=6)
+        ax.plot([scale_x + 10, scale_x + 10], [scale_y - 0.5, scale_y + 0.5],
+                color="#757575", linewidth=1.5, zorder=6)
+        ax.text(scale_x + 5, scale_y + 1.2, "10 格",
+                ha="center", va="center", fontsize=7, color="#9E9E9E", zorder=6)
+
+        # 坐标轴精简
+        ax.set_xlim(-1, gsize)
+        ax.set_ylim(gsize, -1)
         ax.set_aspect("equal")
-        ax.set_title("AGV Warehouse Map", **VisualStyle.TITLE_FONT)
+        ax.set_xticks(range(0, gsize + 1, 10))
+        ax.set_yticks(range(0, gsize + 1, 10))
+        ax.tick_params(colors="#9E9E9E", labelsize=7)
+        ax.set_facecolor("#FAFAFA")
+        for spine in ax.spines.values():
+            spine.set_color("#E0E0E0")
+
+        # 画图例
+        self._draw_legend(ax_legend)
+
         return fig
+
+    def _draw_rack_zones(self, ax: plt.Axes) -> None:
+        for name, zcfg in self.wmap.config.rack_zones.items():
+            sx, sy = zcfg.pos
+            w, h = zcfg.height, zcfg.width
+            zone_color = VisualStyle.ZONE_COLORS.get(name, "#E0E0E0")
+
+            # 区域半透明填充 + 边框
+            ax.add_patch(patches.Rectangle(
+                (sx - 0.5, sy - 0.5), w, h,
+                facecolor=zone_color, edgecolor=zone_color,
+                linewidth=1.5, alpha=0.2))
+
+            # 储位格子纹理
+            num_rows = zcfg.num_rows
+            bays = zcfg.bays_per_row
+            sub_aisle_cols = zcfg.sub_aisle_cols
+
+            total_cols = bays
+            storage_cols = [c for c in range(total_cols) if c not in sub_aisle_cols]
+            cell_w = w / total_cols
+            cell_h = h / num_rows
+
+            for row_i in range(num_rows):
+                for col_i in storage_cols:
+                    cx = sx + col_i * cell_w
+                    cy = sy + row_i * cell_h
+                    ax.add_patch(patches.Rectangle(
+                        (cx - 0.5, cy - 0.5), cell_w, cell_h,
+                        facecolor=zone_color, edgecolor="none", alpha=0.4))
+
+            # 区域名称标签（白色半透明背景）
+            ax.text(sx + w / 2, sy + h / 2, name,
+                    ha="center", va="center",
+                    fontsize=8, fontweight="bold", color="#424242",
+                    bbox=dict(boxstyle="round,pad=0.2",
+                              facecolor="white", alpha=0.8, edgecolor="none"))
+
+    def _draw_legend(self, ax: plt.Axes) -> None:
+        ax.set_xlim(0, 1)
+        ax.set_ylim(0, 1)
+
+        y = 0.96
+        dy = VisualStyle.LEGEND_LINE_HEIGHT
+
+        def section(title: str):
+            nonlocal y
+            y -= dy * 0.5
+            ax.text(0.5, y, title, ha="center", va="top",
+                    **VisualStyle.LEGEND_TITLE_FONT, color="#424242")
+            y -= dy * 1.2
+            ax.plot([0.05, 0.95], [y + dy * 0.3, y + dy * 0.3],
+                    color="#E0E0E0", linewidth=0.5)
+
+        def color_box(label: str, facecolor: str, edgecolor: str = "none",
+                      box_h: float = 0.018):
+            nonlocal y
+            ax.add_patch(patches.FancyBboxPatch(
+                (0.05, y - box_h / 2), 0.15, box_h,
+                boxstyle="round,pad=0.002",
+                facecolor=facecolor, edgecolor=edgecolor,
+                linewidth=1.0 if edgecolor != "none" else 0))
+            ax.text(0.25, y, label, va="center",
+                    **VisualStyle.LEGEND_FONT, color="#424242")
+            y -= dy
+
+        def circle_dot(label: str, color: str):
+            nonlocal y
+            ax.plot(0.12, y, "o", markersize=6, color=color,
+                    markeredgecolor="white", markeredgewidth=0.8)
+            ax.text(0.25, y, label, va="center",
+                    **VisualStyle.LEGEND_FONT, color="#424242")
+            y -= dy
+
+        # 图例标题
+        ax.text(0.5, y, "图 例", ha="center", va="top",
+                fontsize=11, fontweight="bold", color="#424242",
+                family="DejaVu Sans")
+        y -= dy * 1.5
+        ax.plot([0.05, 0.95], [y + dy * 0.3, y + dy * 0.3],
+                color="#E0E0E0", linewidth=0.8)
+
+        # 货架区域
+        section("货架区域")
+        type_labels = {
+            "mechanical": "Mech 机械",
+            "electrical": "Elec 电子",
+            "consumable": "Cons 耗材",
+            "safety": "Safety 安全",
+            "tool": "Tool 工具",
+        }
+        seen_types = set()
+        for name, zcfg in self.wmap.config.rack_zones.items():
+            zt = zcfg.zone_type
+            if zt in seen_types:
+                continue
+            seen_types.add(zt)
+            color = VisualStyle.ZONE_TYPE_COLORS.get(zt, "#E0E0E0")
+            color_box(type_labels.get(zt, zt), color)
+
+        # 端口
+        section("端口")
+        color_box("入库端口", "#BBDEFB", edgecolor="#2196F3")
+        color_box("出库端口", "#FFCDD2", edgecolor="#F44336")
+
+        # 通道
+        section("通道")
+        color_box("主通道", "#F5F5F5", edgecolor="#BDBDBD")
+        color_box("巷道 ↓", "#B2DFDB")
+        color_box("巷道 ↑", "#B3E5FC")
+
+        # 设施
+        section("设施")
+        color_box("充电桩", "#FFF176", edgecolor="#FBC02D")
+
+        # AGV
+        section("AGV")
+        for i, color in enumerate(VisualStyle.AGV_COLORS):
+            circle_dot(f"AGV {i + 1}", color)
 
     def plot_snapshot(self, agvs: list[AGV], step: int) -> plt.Figure:
         fig = self.plot_base_map()
@@ -191,10 +345,11 @@ class Visualizer:
             if step < len(agv.trajectory):
                 x, y, state, _ = agv.trajectory[step]
                 color = VisualStyle.AGV_COLORS[agv.agv_id % len(VisualStyle.AGV_COLORS)]
-                ax.plot(x, y, "o", color=color, markersize=12,
-                        markeredgecolor="white", markeredgewidth=1.5)
-                ax.text(x, y - 1.5, f"AGV{agv.agv_id}", ha="center",
-                        fontsize=8, color=color)
+                ax.plot(x, y, "o", color=color, markersize=11,
+                        markeredgecolor="white", markeredgewidth=1.8,
+                        zorder=8)
+                ax.text(x, y - 1.8, f"AGV{agv.agv_id}", ha="center",
+                        fontsize=7, color=color, fontweight="bold", zorder=8)
         return fig
 
     def _render_frames(self, agvs: list[AGV], makespan: int,
