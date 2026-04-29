@@ -24,11 +24,19 @@ if TYPE_CHECKING:
 # ── 视觉风格 ──
 
 class VisualStyle:
+    # 货架区域 — 按类型分色
     ZONE_COLORS = {
-        "Mech1": "#FF7F0E", "Mech2": "#FF9E4A",
-        "Elec1": "#4FC3F7", "Elec2": "#0288D1",
-        "Cons1": "#2CA02C", "Cons2": "#54C954", "Cons3": "#7CD97C",
-        "Safety": "#9467BD", "Tool": "#8C564B",
+        "Mech1": "#FF9800", "Mech2": "#FFB74D",
+        "Elec1": "#2196F3", "Elec2": "#64B5F6",
+        "Cons1": "#4CAF50", "Cons2": "#66BB6A", "Cons3": "#81C784",
+        "Safety": "#9C27B0", "Tool": "#795548",
+    }
+    ZONE_TYPE_COLORS = {
+        "mechanical": "#FF9800",
+        "electrical": "#2196F3",
+        "consumable": "#4CAF50",
+        "safety": "#9C27B0",
+        "tool": "#795548",
     }
     PORT_COLORS = {
         "INBOUND": {"fill": "#BBDEFB", "edge": "#2196F3", "label": "#0D47A1"},
@@ -38,24 +46,38 @@ class VisualStyle:
         "#E74C3C", "#3498DB", "#2ECC71", "#F39C12",
         "#9B59B6", "#1ABC9C", "#E91E63", "#8BC34A",
     ]
-    ROAD_COLOR = "#ECEFF1"
-    OBSTACLE_COLOR = "#37474F"
-    STORAGE_COLOR = "#FFF9C4"
-    AISLE_DOWN_COLOR = "#B2DFDB"
-    AISLE_UP_COLOR = "#B3E5FC"
-    SUB_AISLE_COLOR = "#D7CCC8"
-    CHARGE_COLOR = "#FFF176"
-    YIELD_COLOR = "#80CBC4"
+    # 格子类型颜色
+    CELL_COLORS = {
+        1: "#F5F5F5",   # PASSABLE
+        2: "#FFF9C4",   # STORAGE
+        3: "#BBDEFB",   # PORT
+        4: "#80CBC4",   # YIELD_POINT
+        5: "#FFF176",   # CHARGING
+        6: "#B2DFDB",   # AISLE_DOWN
+        7: "#B3E5FC",   # AISLE_UP
+        8: "#D7CCC8",   # SUB_AISLE
+    }
+    OBSTACLE_COLOR = "#FAFAFA"
+    CHARGE_FILL = "#FFF176"
+    CHARGE_EDGE = "#FBC02D"
+    # 字体
     TITLE_FONT = {"family": ["DejaVu Sans"], "size": 16, "weight": "bold"}
+    SUBTITLE_FONT = {"family": ["DejaVu Sans"], "size": 11}
     LABEL_FONT = {"family": ["DejaVu Sans"], "size": 9}
-    # English labels for display (Chinese names are kept in data)
+    LEGEND_FONT = {"family": ["DejaVu Sans"], "size": 8}
+    LEGEND_TITLE_FONT = {"family": ["DejaVu Sans"], "size": 9, "weight": "bold"}
+    # 端口标签
     PORT_LABELS = {
         "IN-L": "In-L", "IN-C": "In-C", "IN-R": "In-R",
         "OUT-L": "Out-L", "OUT-C": "Out-C", "OUT-R": "Out-R",
     }
+    # AGV
     AGV_SIZE = 120
     AGV_EDGE_WIDTH = 1.5
-    TRAIL_ALPHA = 0.15
+    # 布局常量
+    LEGEND_WIDTH_INCHES = 2.2
+    LEGEND_PADDING = 0.15
+    LEGEND_LINE_HEIGHT = 0.028
 
 
 class ExportConfig:
@@ -182,8 +204,8 @@ class Visualizer:
         while step < makespan:
             fig = self.plot_snapshot(agvs, step)
             fig.canvas.draw()
-            frames.append(np.frombuffer(fig.canvas.tostring_rgb(), dtype=np.uint8)
-                          .reshape(fig.canvas.get_width_height()[::-1] + (3,)))
+            buf = np.asarray(fig.canvas.buffer_rgba())
+            frames.append(buf[:, :, :3].copy())  # RGBA → RGB
             plt.close(fig)
             step += max(1, makespan // max_frames)
         return frames
@@ -201,20 +223,26 @@ class Visualizer:
 
     def export_mp4(self, agvs: list[AGV], makespan: int,
                    path: str = "output/animation.mp4", fps: int = 15, dpi: int = 100) -> str:
+        frames = self._render_frames(agvs, makespan)
+        if not frames:
+            return path
         Path(path).parent.mkdir(parents=True, exist_ok=True)
-        from matplotlib.animation import FFMpegWriter
-        writer = FFMpegWriter(fps=fps)
-        step = 0
-        fig = self.plot_snapshot(agvs, 0)
-        with writer.saving(fig, path, dpi=dpi):
-            writer.grab_frame()
-            plt.close(fig)
-            step += max(1, makespan // 300)
-            while step < makespan:
-                fig = self.plot_snapshot(agvs, step)
-                writer.grab_frame()
-                plt.close(fig)
-                step += max(1, makespan // 300)
+        import subprocess
+        h, w = frames[0].shape[:2]
+        cmd = [
+            "ffmpeg", "-y",
+            "-f", "rawvideo", "-vcodec", "rawvideo",
+            "-s", f"{w}x{h}", "-pix_fmt", "rgb24",
+            "-r", str(fps),
+            "-i", "-",
+            "-c:v", "libx264", "-pix_fmt", "yuv420p",
+            "-crf", "23", path,
+        ]
+        proc = subprocess.Popen(cmd, stdin=subprocess.PIPE, stderr=subprocess.DEVNULL)
+        for f in frames:
+            proc.stdin.write(f.tobytes())
+        proc.stdin.close()
+        proc.wait()
         return path
 
     def export_static_plots(self, agvs: list[AGV], makespan: int,
