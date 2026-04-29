@@ -47,3 +47,7 @@ Code_20260420.py
 
 # 临时脚本
 snapshots.py
+
+# 测试与工具缓存
+.pytest_cache/
+.superpowers/

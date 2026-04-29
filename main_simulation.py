@@ -134,13 +134,18 @@ if __name__ == "__main__":
 
     config = WarehouseConfig()
 
-    if len(sys.argv) > 1 and sys.argv[1] == "--ablation":
-        map_name = sys.argv[2] if len(sys.argv) > 2 else config.MAP_NAME
-        order_num = int(sys.argv[3]) if len(sys.argv) > 3 else config.ORDER_NUM
+    args = sys.argv[1:]
+    gen_mp4 = "--mp4" in args
+    if gen_mp4:
+        args.remove("--mp4")
+
+    if len(args) > 0 and args[0] == "--ablation":
+        map_name = args[1] if len(args) > 1 else config.MAP_NAME
+        order_num = int(args[2]) if len(args) > 2 else config.ORDER_NUM
         results = run_ablation(config, map_name, order_num)
     else:
-        map_name = sys.argv[1] if len(sys.argv) > 1 else config.MAP_NAME
-        order_num = int(sys.argv[2]) if len(sys.argv) > 2 else config.ORDER_NUM
+        map_name = args[0] if len(args) > 0 else config.MAP_NAME
+        order_num = int(args[1]) if len(args) > 1 else config.ORDER_NUM
 
         print(f"  地图: {map_name} | 订单数: {order_num}")
         np.random.seed(config.RANDOM_SEED)
@@ -157,7 +162,8 @@ if __name__ == "__main__":
         # 可视化
         viz = Visualizer(wmap, config)
         viz.export_static_plots(sim.get_agvs(), result.makespan, output_dir="output/")
-        print("  生成MP4动画...")
-        viz.export_mp4(sim.get_agvs(), result.makespan)
+        if gen_mp4:
+            print("  生成MP4动画...")
+            viz.export_mp4(sim.get_agvs(), result.makespan)
         ResultExporter.export_json(result, "output/result.json")
         print("\n  输出已保存到 output/")
