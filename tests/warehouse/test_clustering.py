@@ -37,15 +37,22 @@ def test_cluster_disabled():
     config = WarehouseConfig(ablation=AblationFlags(enable_clustering=False))
     pf = PathFinder(wmap, config)
     cl = OrderClusterer(pf, config)
-    tasks = [TransportTask(task_id=i, task_type=TaskType.OUTBOUND, dest="Raw1_S1")
-             for i in range(5)]
+    # 3个订单，各有2/1/2个任务
+    tasks = ([TransportTask(task_id=i, task_type=TaskType.OUTBOUND, dest="Raw1_S1", order_id=1)
+              for i in range(2)]
+             + [TransportTask(task_id=2, task_type=TaskType.OUTBOUND, dest="Raw1_S1", order_id=2)]
+             + [TransportTask(task_id=i, task_type=TaskType.OUTBOUND, dest="Raw1_S1", order_id=3)
+                for i in range(3, 5)])
     clusters = cl.cluster(tasks, 20, wmap.zone_pos)
-    assert len(clusters) == 5  # 每个任务独立一簇
+    assert len(clusters) == 3  # 每个订单一个簇
+    assert sum(c.task_num for c in clusters) == 5
 
 
 def test_cluster_capacity_split(clusterer):
     cl, wmap = clusterer
-    tasks = [TransportTask(task_id=i, task_type=TaskType.OUTBOUND, dest="Raw1_S1")
+    # 5个订单，每个5个任务，总共25个任务
+    tasks = [TransportTask(task_id=i, task_type=TaskType.OUTBOUND, dest="Raw1_S1",
+                           order_id=i // 5)
              for i in range(25)]
     clusters = cl.cluster(tasks, 10, wmap.zone_pos)
     for c in clusters:

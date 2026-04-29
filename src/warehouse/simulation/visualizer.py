@@ -41,8 +41,13 @@ class VisualStyle:
     OBSTACLE_COLOR = "#37474F"
     CHARGE_COLOR = "#FFF176"
     YIELD_COLOR = "#80CBC4"
-    TITLE_FONT = {"family": ["SimHei", "DejaVu Sans"], "size": 16, "weight": "bold"}
-    LABEL_FONT = {"family": ["SimHei", "DejaVu Sans"], "size": 9}
+    TITLE_FONT = {"family": ["DejaVu Sans"], "size": 16, "weight": "bold"}
+    LABEL_FONT = {"family": ["DejaVu Sans"], "size": 9}
+    # English labels for display (Chinese names are kept in data)
+    PORT_LABELS = {
+        "入库北": "In-N", "出库南": "Out-S",
+        "紧急出库西": "Out-W", "备件入库东": "In-E",
+    }
     AGV_SIZE = 120
     AGV_EDGE_WIDTH = 1.5
     TRAIL_ALPHA = 0.15
@@ -91,7 +96,7 @@ class Visualizer:
     def __init__(self, warehouse_map, config):
         self.wmap = warehouse_map
         self.config = config
-        plt.rcParams["font.sans-serif"] = ["SimHei", "DejaVu Sans"]
+        plt.rcParams["font.sans-serif"] = ["DejaVu Sans"]
         plt.rcParams["axes.unicode_minus"] = False
 
     def plot_base_map(self) -> plt.Figure:
@@ -130,7 +135,9 @@ class Visualizer:
             ax.add_patch(patches.Rectangle((x1 - 0.5, y1 - 0.5), x2 - x1, y2 - y1,
                                            facecolor=colors["fill"], edgecolor=colors["edge"],
                                            linewidth=2, alpha=0.7))
-            ax.text((x1 + x2) / 2, (y1 + y2) / 2, name, ha="center", va="center",
+            ax.text((x1 + x2) / 2, (y1 + y2) / 2,
+                    VisualStyle.PORT_LABELS.get(name, name),
+                    ha="center", va="center",
                     color=colors["label"], **VisualStyle.LABEL_FONT)
 
         # 画充电桩

@@ -1,5 +1,5 @@
 # src/warehouse/wes/clustering.py
-"""容量约束层次聚类"""
+"""方向感知层次聚类：OUTBOUND按dest区域聚类，INBOUND按pick区域聚类"""
 
 from __future__ import annotations
 from collections import defaultdict
@@ -9,7 +9,7 @@ import numpy as np
 from scipy.cluster.hierarchy import linkage, fcluster
 from scipy.spatial.distance import pdist
 
-from src.warehouse.models import TransportTask, TaskCluster, OrderPriority
+from src.warehouse.models import TransportTask, TaskCluster, TaskType, OrderPriority
 
 if TYPE_CHECKING:
     from src.warehouse.fleet.pathfinding import PathFinder
@@ -30,51 +30,102 @@ class OrderClusterer:
             return "Spare"
         return "Unknown"
 
+    def _group_by_order(self, tasks: list[TransportTask]) -> list[list[TransportTask]]:
+        """将任务按 order_id 分组"""
+        order_map: dict[int, list[TransportTask]] = defaultdict(list)
+        for t in tasks:
+            order_map[t.order_id].append(t)
+        return list(order_map.values())
+
+    def _get_order_zone(self, order_tasks: list[TransportTask],
+                        direction: str = "outbound") -> str:
+        """确定订单所属区域。OUTBOUND用dest，INBOUND用pick"""
+        if direction == "outbound":
+            zones = [self._get_zone(t.dest) for t in order_tasks]
+        else:
+            zones = [self._get_zone(t.pick) for t in order_tasks]
+        return max(set(zones), key=zones.count) if zones else "Unknown"
+
+    def _get_order_center(self, order_tasks: list[TransportTask],
+                          zone_pos: dict[str, tuple[int, int]],
+                          direction: str = "outbound") -> tuple[float, float]:
+        """计算订单中心。OUTBOUND用dest坐标，INBOUND用pick坐标"""
+        xs, ys = [], []
+        for t in order_tasks:
+            loc = t.dest if direction == "outbound" else t.pick
+            pos = zone_pos.get(loc, (0, 0))
+            xs.append(pos[0])
+            ys.append(pos[1])
+        return (np.mean(xs), np.mean(ys))
+
+    def _make_cluster(self, cluster_id: int, tasks: list[TransportTask],
+                      zone: str = "") -> TaskCluster:
+        return TaskCluster(
+            cluster_id=cluster_id,
+            tasks=tasks,
+            task_num=len(tasks),
+            order_ids=list({t.order_id for t in tasks}),
+            priority=max(t.priority for t in tasks),
+            zone=zone,
+        )
+
     def cluster(self, tasks: list[TransportTask],
                 max_capacity: int,
                 zone_pos: dict[str, tuple[int, int]]) -> list[TaskCluster]:
+
         if not self.config.ablation.enable_clustering:
+            order_groups = self._group_by_order(tasks)
             return [
-                TaskCluster(cluster_id=i + 1, tasks=[t], task_num=1,
-                            order_ids=[t.order_id], priority=t.priority)
-                for i, t in enumerate(tasks)
+                self._make_cluster(i + 1, group)
+                for i, group in enumerate(order_groups)
             ]
 
-        # 按目标区域分组
-        zone_groups: dict[str, list[TransportTask]] = defaultdict(list)
-        for task in tasks:
-            zone = self._get_zone(task.dest)
-            zone_groups[zone].append(task)
+        # 方向感知：分离 OUTBOUND/TRANSFER 和 INBOUND
+        ob_tasks = [t for t in tasks if t.task_type != TaskType.INBOUND]
+        ib_tasks = [t for t in tasks if t.task_type == TaskType.INBOUND]
 
         clusters = []
         cluster_id = 0
 
-        for zone, zone_tasks in zone_groups.items():
-            if len(zone_tasks) <= 1:
-                for t in zone_tasks:
-                    cluster_id += 1
-                    clusters.append(TaskCluster(
-                        cluster_id=cluster_id, tasks=[t], task_num=1,
-                        order_ids=[t.order_id], priority=t.priority, zone=zone,
-                    ))
-                continue
-
-            # 计算中心坐标
-            centers = []
-            for t in zone_tasks:
-                pos = zone_pos.get(t.dest, (0, 0))
-                centers.append(pos)
-
-            if len(centers) <= 1:
+        # OUTBOUND/TRANSFER: 按 dest 区域聚类
+        if ob_tasks:
+            for c in self._cluster_direction(ob_tasks, max_capacity, zone_pos, "outbound"):
                 cluster_id += 1
-                clusters.append(TaskCluster(
-                    cluster_id=cluster_id, tasks=zone_tasks,
-                    task_num=len(zone_tasks),
-                    order_ids=list({t.order_id for t in zone_tasks}),
-                    priority=max(t.priority for t in zone_tasks),
-                    zone=zone,
-                ))
+                c.cluster_id = cluster_id
+                clusters.append(c)
+
+        # INBOUND: 按 pick 区域聚类
+        if ib_tasks:
+            for c in self._cluster_direction(ib_tasks, max_capacity, zone_pos, "inbound"):
+                cluster_id += 1
+                c.cluster_id = cluster_id
+                clusters.append(c)
+
+        return clusters
+
+    def _cluster_direction(self, tasks: list[TransportTask],
+                           max_capacity: int,
+                           zone_pos: dict[str, tuple[int, int]],
+                           direction: str) -> list[TaskCluster]:
+        """对单方向任务进行层次聚类"""
+        order_groups = self._group_by_order(tasks)
+
+        # 按区域分组
+        zone_orders: dict[str, list[list[TransportTask]]] = defaultdict(list)
+        for group in order_groups:
+            zone = self._get_order_zone(group, direction)
+            zone_orders[zone].append(group)
+
+        clusters = []
+
+        for zone, order_list in zone_orders.items():
+            if len(order_list) <= 1:
+                for group in order_list:
+                    clusters.append(self._make_cluster(0, group, zone))
                 continue
+
+            # 计算订单中心
+            centers = [self._get_order_center(g, zone_pos, direction) for g in order_list]
 
             # 层次聚类
             center_arr = np.array(centers, dtype=float)
@@ -82,31 +133,21 @@ class OrderClusterer:
             Z = linkage(dist_matrix, method="ward")
             labels = fcluster(Z, t=25, criterion="distance")
 
-            label_groups: dict[int, list[TransportTask]] = defaultdict(list)
+            label_groups: dict[int, list[list[TransportTask]]] = defaultdict(list)
             for idx, label in enumerate(labels):
-                label_groups[label].append(zone_tasks[idx])
+                label_groups[label].append(order_list[idx])
 
-            for group_tasks in label_groups.values():
-                total = len(group_tasks)
-                if total > max_capacity:
-                    # 分割
-                    split_n = (total // max_capacity) + 1
-                    subgroups = np.array_split(group_tasks, split_n)
+            for order_subgroups in label_groups.values():
+                all_tasks = []
+                for g in order_subgroups:
+                    all_tasks.extend(g)
+
+                if len(all_tasks) > max_capacity:
+                    split_n = (len(all_tasks) // max_capacity) + 1
+                    subgroups = np.array_split(all_tasks, split_n)
                     for sub in subgroups:
-                        cluster_id += 1
-                        st = list(sub)
-                        clusters.append(TaskCluster(
-                            cluster_id=cluster_id, tasks=st, task_num=len(st),
-                            order_ids=list({t.order_id for t in st}),
-                            priority=max(t.priority for t in st), zone=zone,
-                        ))
+                        clusters.append(self._make_cluster(0, list(sub), zone))
                 else:
-                    cluster_id += 1
-                    clusters.append(TaskCluster(
-                        cluster_id=cluster_id, tasks=group_tasks,
-                        task_num=len(group_tasks),
-                        order_ids=list({t.order_id for t in group_tasks}),
-                        priority=max(t.priority for t in group_tasks), zone=zone,
-                    ))
+                    clusters.append(self._make_cluster(0, all_tasks, zone))
 
         return clusters

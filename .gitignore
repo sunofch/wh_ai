@@ -38,3 +38,12 @@ docs/
 
 # OMC 配置目录
 .omc/
+
+# 生成的输出文件
+output/
+
+# 原始参考代码
+Code_20260420.py
+
+# 临时脚本
+snapshots.py

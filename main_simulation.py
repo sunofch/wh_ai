@@ -1,5 +1,59 @@
+#!/usr/bin/env python3
 # main_simulation.py
-"""纯仿真测试入口（不依赖VLM/Parser）"""
+"""
+AGV 智能仓储调度系统 v2.0 — 仿真测试入口
+
+====================================
+使用说明
+====================================
+
+【基本运行】
+    python main_simulation.py [地图名] [订单数]
+
+    参数:
+        地图名   - 可选，默认 medium_50x50
+                  可选值: medium_50x50, large_100x100, extreme_corner, extreme_corridor, extreme_cluster
+        订单数   - 可选，默认 40
+
+【消融实验】
+    python main_simulation.py --ablation [地图名] [订单数]
+
+    运行 6 组消融实验对比:
+    - Baseline (无优化): 关闭所有模块
+    - M1 (路径缓存): 仅启用路径缓存
+    - M1+M2 (+聚类): 路径缓存 + 方向感知聚类
+    - M1+M2+M3 (+TSP): + 双向 Batch TSP
+    - M1+M2+M3+M4 (+CP-SAT): + CP-SAT 全局分配
+    - Full (全模块): 所有模块启用
+====================================
+运行示例
+====================================
+
+# 1. 默认运行 (50x50地图, 40订单)
+python main_simulation.py
+
+# 2. 指定地图和订单数
+python main_simulation.py large_100x100 60
+
+# 3. 运行消融实验
+python main_simulation.py --ablation
+
+# 4. 极端地图测试
+python main_simulation.py extreme_corner 30
+python main_simulation.py --ablation extreme_cluster 20
+
+====================================
+技术特性
+====================================
+
+- 四层架构: WMS → WES → Fleet → Simulation
+- 双向 Batch: OUTBOUND 多取一送 + INBOUND 一取多送
+- 方向感知聚类: 按 dest/pick 区域智能分组
+- 时空 A* 寻路: 避免多 AGV 冲突
+- CP-SAT 分配: 全局优化 makespan
+- OR-Tools TSP: 任务序列优化
+====================================
+"""
 
 import sys
 import time
@@ -41,11 +95,11 @@ def run_single(config: WarehouseConfig, map_name: str, order_num: int):
     clusterer = OrderClusterer(fleet.path_finder, config)
     clusters = clusterer.cluster(tasks, config.AGV_MAX_TASK_CAPACITY, wmap.zone_pos)
 
-    agv_tasks, makespan = fleet.schedule(clusters)
+    agv_tasks, estimated_makespan = fleet.schedule(clusters)
 
     sim = Simulator(wmap, fleet, config)
-    result = sim.run(agv_tasks, makespan)
-    return result, wmap, sim
+    result = sim.run(agv_tasks, estimated_makespan)
+    return result, wmap, sim, estimated_makespan
 
 
 def run_ablation(config: WarehouseConfig, map_name: str, order_num: int):
@@ -65,9 +119,9 @@ def run_ablation(config: WarehouseConfig, map_name: str, order_num: int):
         print(f"  运行: {group['name']}")
         print(f"{'='*60}")
         cfg = WarehouseConfig(ablation=group["flags"], ORDER_NUM=order_num, RANDOM_SEED=config.RANDOM_SEED)
-        result, _, _ = run_single(cfg, map_name, order_num)
+        result, _, _, est_ms = run_single(cfg, map_name, order_num)
         results[group["name"]] = result
-        print(f"  makespan: {result.makespan} | 距离: {result.total_distance} | 利用率: {result.agv_utilization:.2%} | 耗时: {result.planning_time:.2f}s")
+        print(f"  估计makespan: {est_ms} | 实际makespan: {result.makespan} | 距离: {result.total_distance} | 利用率: {result.agv_utilization:.2%} | 耗时: {result.planning_time:.2f}s")
 
     print(f"\n{'='*100}")
     print("消融实验结果对比")
@@ -95,7 +149,7 @@ if __name__ == "__main__":
         np.random.seed(config.RANDOM_SEED)
         random.seed(config.RANDOM_SEED)
 
-        result, wmap, sim = run_single(config, map_name, order_num)
+        result, wmap, sim, _ = run_single(config, map_name, order_num)
 
         print(f"\n  Makespan: {result.makespan}")
         print(f"  总距离: {result.total_distance}")
