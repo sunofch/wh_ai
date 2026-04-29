@@ -275,7 +275,11 @@ class PathFinder:
         if not self.config.ablation.enable_path_cache:
             return
         key_points = []
-        key_points.extend([self.wmap.zone_pos[z] for z in self.wmap.rack_zone_names])
+        # Use first storage of each zone as representative key point
+        for zone in self.wmap.rack_zone_names:
+            first = f"{zone}_R1_B1"
+            if first in self.wmap.zone_pos:
+                key_points.append(self.wmap.zone_pos[first])
         key_points.extend([pcfg["pos"] for pcfg in self.wmap.port_info.values()])
         key_points.extend(self.wmap.config.agv_init_positions)
         for i, start in enumerate(key_points):
