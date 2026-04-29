@@ -126,6 +126,35 @@ class AblationFlags(BaseModel):
     enable_conflict_avoid: bool = True   # M5: ConflictManager
 
 
+# ── 货架区域配置 ──
+
+class RackRow(BaseModel):
+    """一行货架"""
+    row_id: str
+    positions: list[str]
+    y_offset: int
+
+
+class AisleConfig(BaseModel):
+    """巷道配置"""
+    aisle_id: str
+    direction: str           # "down" | "up"
+    y_offset: int
+
+
+class RackZoneConfig(BaseModel):
+    """货架区域配置"""
+    zone_id: str
+    zone_type: str           # "mechanical" | "electrical" | "consumable" | "safety" | "tool"
+    pos: tuple[int, int]
+    width: int = 14
+    height: int = 10
+    num_rows: int = 5
+    bays_per_row: int = 10
+    sub_aisle_cols: list[int] = Field(default_factory=lambda: [3, 6, 9, 12])
+    color: str = ""
+
+
 # ── 地图配置 ──
 
 class MapConfig(BaseModel):
@@ -133,7 +162,9 @@ class MapConfig(BaseModel):
     display_name: str
     grid_size: int
     description: str = ""
-    warehouse_zones: dict[str, dict] = {}
+    rack_zones: dict[str, RackZoneConfig] = {}
+    main_aisle_width: int = 3
+    sub_aisle_width: int = 1
     ports: dict[str, dict] = {}
     agv_init_positions: list[tuple[int, int]] = []
     agv_count: int = 8
