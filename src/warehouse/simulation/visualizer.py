@@ -40,6 +40,10 @@ class VisualStyle:
     ]
     ROAD_COLOR = "#ECEFF1"
     OBSTACLE_COLOR = "#37474F"
+    STORAGE_COLOR = "#FFF9C4"
+    AISLE_DOWN_COLOR = "#B2DFDB"
+    AISLE_UP_COLOR = "#B3E5FC"
+    SUB_AISLE_COLOR = "#D7CCC8"
     CHARGE_COLOR = "#FFF176"
     YIELD_COLOR = "#80CBC4"
     TITLE_FONT = {"family": ["DejaVu Sans"], "size": 16, "weight": "bold"}
@@ -105,13 +109,21 @@ class Visualizer:
         grid = self.wmap.grid
         gs = self.wmap.config.grid_size
 
-        # 画网格
+        # 画网格（按格子类型着色）
+        CELL_COLORS = {
+            1: VisualStyle.ROAD_COLOR,        # PASSABLE
+            2: VisualStyle.STORAGE_COLOR,     # STORAGE
+            3: "#BBDEFB",                     # PORT
+            4: "#80CBC4",                     # YIELD_POINT
+            5: "#FFF176",                     # CHARGING
+            6: VisualStyle.AISLE_DOWN_COLOR,  # AISLE_DOWN
+            7: VisualStyle.AISLE_UP_COLOR,    # AISLE_UP
+            8: VisualStyle.SUB_AISLE_COLOR,   # SUB_AISLE
+        }
         for y in range(gs):
             for x in range(gs):
-                color = VisualStyle.OBSTACLE_COLOR
                 cell = grid[y, x]
-                if cell in (1, 2, 3, 4, 5):
-                    color = VisualStyle.ROAD_COLOR
+                color = CELL_COLORS.get(cell, VisualStyle.OBSTACLE_COLOR)
                 ax.add_patch(patches.Rectangle((x - 0.5, y - 0.5), 1, 1,
                                                facecolor=color, edgecolor="none"))
 
