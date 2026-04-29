@@ -25,9 +25,10 @@ if TYPE_CHECKING:
 
 class VisualStyle:
     ZONE_COLORS = {
-        "Raw": {"fill": "#FFE0B2", "edge": "#FF9800", "label": "#E65100"},
-        "Finished": {"fill": "#C8E6C9", "edge": "#4CAF50", "label": "#1B5E20"},
-        "Spare": {"fill": "#E1BEE7", "edge": "#9C27B0", "label": "#4A148C"},
+        "Mech1": "#FF7F0E", "Mech2": "#FF9E4A",
+        "Elec1": "#4FC3F7", "Elec2": "#0288D1",
+        "Cons1": "#2CA02C", "Cons2": "#54C954", "Cons3": "#7CD97C",
+        "Safety": "#9467BD", "Tool": "#8C564B",
     }
     PORT_COLORS = {
         "INBOUND": {"fill": "#BBDEFB", "edge": "#2196F3", "label": "#0D47A1"},
@@ -45,8 +46,8 @@ class VisualStyle:
     LABEL_FONT = {"family": ["DejaVu Sans"], "size": 9}
     # English labels for display (Chinese names are kept in data)
     PORT_LABELS = {
-        "入库北": "In-N", "出库南": "Out-S",
-        "紧急出库西": "Out-W", "备件入库东": "In-E",
+        "IN-L": "In-L", "IN-C": "In-C", "IN-R": "In-R",
+        "OUT-L": "Out-L", "OUT-C": "Out-C", "OUT-R": "Out-R",
     }
     AGV_SIZE = 120
     AGV_EDGE_WIDTH = 1.5
@@ -114,18 +115,16 @@ class Visualizer:
                 ax.add_patch(patches.Rectangle((x - 0.5, y - 0.5), 1, 1,
                                                facecolor=color, edgecolor="none"))
 
-        # 画仓库区
-        for name, wcfg in self.wmap.warehouse_zones.items():
-            sx, sy = wcfg["pos"]
-            w, h = wcfg["w"], wcfg["h"]
-            zone_prefix = "".join(c for c in name if not c.isdigit())
-            colors = VisualStyle.ZONE_COLORS.get(zone_prefix,
-                                                  {"fill": "#E0E0E0", "edge": "#757575", "label": "#333"})
+        # 画货架区域
+        for name, zcfg in self.wmap.config.rack_zones.items():
+            sx, sy = zcfg.pos
+            w, h = zcfg.height, zcfg.width
+            color = VisualStyle.ZONE_COLORS.get(name, "#E0E0E0")
             ax.add_patch(patches.Rectangle((sx - 0.5, sy - 0.5), w, h,
-                                           facecolor=colors["fill"], edgecolor=colors["edge"],
-                                           linewidth=1.5, alpha=0.6))
+                                           facecolor=color, edgecolor="#555",
+                                           linewidth=1.5, alpha=0.4))
             ax.text(sx + w / 2, sy + h / 2, name, ha="center", va="center",
-                    color=colors["label"], **{k: v for k, v in VisualStyle.LABEL_FONT.items() if k != "size"})
+                    color="#333", **{k: v for k, v in VisualStyle.LABEL_FONT.items() if k != "size"})
 
         # 画端口
         for name, pcfg in self.wmap.port_info.items():
