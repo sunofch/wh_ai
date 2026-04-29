@@ -130,12 +130,11 @@ class Visualizer:
         cfg = self.config
         fig = plt.figure(figsize=cfg.FIG_SIZE, dpi=cfg.FIG_DPI)
 
-        # 标题区
-        fig.text(0.42, 0.96, "AGV 仓库仿真地图",
+        # Title
+        fig.text(0.42, 0.96, "AGV Warehouse Simulation Map",
                  ha="center", va="center", **VisualStyle.TITLE_FONT, color="#212121")
-        subtitle = (f"{self.wmap.config.display_name} | "
-                    f"{self.wmap.config.grid_size}×{self.wmap.config.grid_size} | "
-                    f"{self.wmap.config.agv_count} 台 AGV")
+        subtitle = (f"{self.wmap.config.grid_size}x{self.wmap.config.grid_size} Grid | "
+                    f"9 Zones | {self.wmap.config.agv_count} AGVs")
         fig.text(0.42, 0.935, subtitle,
                  ha="center", va="center", **VisualStyle.SUBTITLE_FONT, color="#757575")
 
@@ -200,7 +199,7 @@ class Visualizer:
                 color="#757575", linewidth=1.5, zorder=6)
         ax.plot([scale_x + 10, scale_x + 10], [scale_y - 0.5, scale_y + 0.5],
                 color="#757575", linewidth=1.5, zorder=6)
-        ax.text(scale_x + 5, scale_y + 1.2, "10 格",
+        ax.text(scale_x + 5, scale_y + 1.2, "10 cells",
                 ha="center", va="center", fontsize=7, color="#9E9E9E", zorder=6)
 
         # 坐标轴精简
@@ -292,22 +291,22 @@ class Visualizer:
                     **VisualStyle.LEGEND_FONT, color="#424242")
             y -= dy
 
-        # 图例标题
-        ax.text(0.5, y, "图 例", ha="center", va="top",
+        # Legend title
+        ax.text(0.5, y, "LEGEND", ha="center", va="top",
                 fontsize=11, fontweight="bold", color="#424242",
                 family="DejaVu Sans")
         y -= dy * 1.5
         ax.plot([0.05, 0.95], [y + dy * 0.3, y + dy * 0.3],
                 color="#E0E0E0", linewidth=0.8)
 
-        # 货架区域
-        section("货架区域")
+        # Rack zones
+        section("Rack Zones")
         type_labels = {
-            "mechanical": "Mech 机械",
-            "electrical": "Elec 电子",
-            "consumable": "Cons 耗材",
-            "safety": "Safety 安全",
-            "tool": "Tool 工具",
+            "mechanical": "Mech",
+            "electrical": "Elec",
+            "consumable": "Cons",
+            "safety": "Safety",
+            "tool": "Tool",
         }
         seen_types = set()
         for name, zcfg in self.wmap.config.rack_zones.items():
@@ -318,23 +317,23 @@ class Visualizer:
             color = VisualStyle.ZONE_TYPE_COLORS.get(zt, "#E0E0E0")
             color_box(type_labels.get(zt, zt), color)
 
-        # 端口
-        section("端口")
-        color_box("入库端口", "#BBDEFB", edgecolor="#2196F3")
-        color_box("出库端口", "#FFCDD2", edgecolor="#F44336")
+        # Ports
+        section("Ports")
+        color_box("Inbound", "#BBDEFB", edgecolor="#2196F3")
+        color_box("Outbound", "#FFCDD2", edgecolor="#F44336")
 
-        # 通道
-        section("通道")
-        color_box("主通道", "#F5F5F5", edgecolor="#BDBDBD")
-        color_box("巷道 ↓", "#B2DFDB")
-        color_box("巷道 ↑", "#B3E5FC")
+        # Aisles
+        section("Aisles")
+        color_box("Main Aisle", "#F5F5F5", edgecolor="#BDBDBD")
+        color_box("Aisle Down", "#B2DFDB")
+        color_box("Aisle Up", "#B3E5FC")
 
-        # 设施
-        section("设施")
-        color_box("充电桩", "#FFF176", edgecolor="#FBC02D")
+        # Facilities
+        section("Facilities")
+        color_box("Charging", "#FFF176", edgecolor="#FBC02D")
 
-        # AGV
-        section("AGV")
+        # AGVs
+        section("AGVs")
         for i, color in enumerate(VisualStyle.AGV_COLORS):
             circle_dot(f"AGV {i + 1}", color)
 
@@ -352,15 +351,45 @@ class Visualizer:
                         fontsize=7, color=color, fontweight="bold", zorder=8)
         return fig
 
+    def _render_base_image(self) -> np.ndarray:
+        """Render base map once and cache as RGB array."""
+        fig = self.plot_base_map()
+        fig.canvas.draw()
+        buf = np.asarray(fig.canvas.buffer_rgba())
+        base = buf[:, :, :3].copy()
+        plt.close(fig)
+        return base
+
     def _render_frames(self, agvs: list[AGV], makespan: int,
                        max_frames: int = 300) -> list[np.ndarray]:
+        # Render base map once
+        base_img = self._render_base_image()
+        h, w = base_img.shape[:2]
+
         frames = []
         step = 0
         while step < makespan:
-            fig = self.plot_snapshot(agvs, step)
+            # Use base image as background, overlay AGV markers
+            fig, ax = plt.subplots(figsize=self.config.FIG_SIZE, dpi=self.config.FIG_DPI)
+            ax.imshow(base_img, extent=[0, w, h, 0], aspect="auto")
+            ax.set_axis_off()
+
+            gsize = self.wmap.config.grid_size
+            for agv in agvs:
+                if step < len(agv.trajectory):
+                    ax_x, ax_y, _, _ = agv.trajectory[step]
+                    color = VisualStyle.AGV_COLORS[agv.agv_id % len(VisualStyle.AGV_COLORS)]
+                    # Map grid coords to pixel coords
+                    px = (ax_x + 0.5) / gsize * w
+                    py = (ax_y + 0.5) / gsize * h
+                    ax.plot(px, py, "o", color=color, markersize=11,
+                            markeredgecolor="white", markeredgewidth=1.8, zorder=8)
+                    ax.text(px, py - h * 0.02, f"AGV{agv.agv_id}", ha="center",
+                            fontsize=7, color=color, fontweight="bold", zorder=8)
+
             fig.canvas.draw()
             buf = np.asarray(fig.canvas.buffer_rgba())
-            frames.append(buf[:, :, :3].copy())  # RGBA → RGB
+            frames.append(buf[:, :, :3].copy())
             plt.close(fig)
             step += max(1, makespan // max_frames)
         return frames
