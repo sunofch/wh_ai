@@ -12,7 +12,7 @@ AGV 智能仓储调度系统 v2.0 — 仿真测试入口
 
     参数:
         地图名   - 可选，默认 medium_50x50
-                  可选值: medium_50x50, large_100x100, extreme_corner, extreme_corridor, extreme_cluster
+                  可选值: medium_50x50
         订单数   - 可选，默认 40
 
 【消融实验】
@@ -33,14 +33,13 @@ AGV 智能仓储调度系统 v2.0 — 仿真测试入口
 python main_simulation.py
 
 # 2. 指定地图和订单数
-python main_simulation.py large_100x100 60
+python main_simulation.py medium_50x50 60
 
 # 3. 运行消融实验
 python main_simulation.py --ablation
 
-# 4. 极端地图测试
-python main_simulation.py extreme_corner 30
-python main_simulation.py --ablation extreme_cluster 20
+# 4. 消融实验指定订单数
+python main_simulation.py --ablation medium_50x50 20
 
 ====================================
 技术特性
@@ -74,8 +73,6 @@ from src.warehouse.models import AblationFlags
 
 # 注册所有地图
 import src.warehouse.maps.medium_50x50  # noqa: F401
-import src.warehouse.maps.large_100x100  # noqa: F401
-import src.warehouse.maps.extreme  # noqa: F401
 
 
 def run_single(config: WarehouseConfig, map_name: str, order_num: int):
