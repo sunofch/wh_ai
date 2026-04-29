@@ -9,7 +9,8 @@ from typing import TYPE_CHECKING
 import numpy as np
 
 from src.warehouse.fleet.map_builder import (
-    MAP_PASSABLE, MAP_WAREHOUSE, MAP_PORT, MAP_YIELD_POINT, MAP_CHARGING,
+    MAP_PASSABLE, MAP_STORAGE, MAP_PORT, MAP_YIELD_POINT, MAP_CHARGING,
+    MAP_AISLE_DOWN, MAP_AISLE_UP, MAP_SUB_AISLE,
 )
 
 if TYPE_CHECKING:
@@ -102,18 +103,16 @@ class PathFinder:
         if not (0 <= nx < gs and 0 <= ny < gs):
             return False
         cell = self.grid[ny][nx]
-        if cell not in (MAP_PASSABLE, MAP_WAREHOUSE, MAP_PORT, MAP_YIELD_POINT, MAP_CHARGING):
+        if cell == 0:  # MAP_OBSTACLE
             return False
-        # 单向主干道约束
-        for seg_id, seg_info in self.wmap.config.conflict_segments.items():
-            start, end = seg_info["start"], seg_info["end"]
-            seg_dir = seg_info["direction"]
-            if start[1] == end[1] == cur[1] == nxt[1] and min(start[0], end[0]) <= cur[0] <= max(start[0], end[0]):
-                if seg_dir == "RIGHT" and move_dir_str != "RIGHT":
-                    return False
-            if start[0] == end[0] == cur[0] == nxt[0] and min(start[1], end[1]) <= cur[1] <= max(start[1], end[1]):
-                if seg_dir == "DOWN" and move_dir_str != "DOWN":
-                    return False
+        if cell == MAP_AISLE_DOWN:
+            dx, dy = nx - cur[0], ny - cur[1]
+            if dy < 0:
+                return False
+        if cell == MAP_AISLE_UP:
+            dx, dy = nx - cur[0], ny - cur[1]
+            if dy > 0:
+                return False
         return True
 
     def _is_in_conflict_segment(self, pos: tuple[int, int]) -> tuple[str | None, str | None]:
@@ -276,7 +275,7 @@ class PathFinder:
         if not self.config.ablation.enable_path_cache:
             return
         key_points = []
-        key_points.extend([self.wmap.zone_pos[wh] for wh in self.wmap.warehouse_zones])
+        key_points.extend([self.wmap.zone_pos[z] for z in self.wmap.rack_zone_names])
         key_points.extend([pcfg["pos"] for pcfg in self.wmap.port_info.values()])
         key_points.extend(self.wmap.config.agv_init_positions)
         for i, start in enumerate(key_points):
