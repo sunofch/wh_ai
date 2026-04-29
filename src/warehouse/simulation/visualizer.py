@@ -175,8 +175,8 @@ class Visualizer:
                         fontsize=8, color=color)
         return fig
 
-    def export_gif(self, agvs: list[AGV], makespan: int,
-                   path: str = "output/animation.gif", fps: int = 15, dpi: int = 100) -> str:
+    def _render_frames(self, agvs: list[AGV], makespan: int,
+                       max_frames: int = 300) -> list[np.ndarray]:
         frames = []
         step = 0
         while step < makespan:
@@ -185,14 +185,36 @@ class Visualizer:
             frames.append(np.frombuffer(fig.canvas.tostring_rgb(), dtype=np.uint8)
                           .reshape(fig.canvas.get_width_height()[::-1] + (3,)))
             plt.close(fig)
-            step += max(1, makespan // 200)  # ~200帧
+            step += max(1, makespan // max_frames)
+        return frames
 
+    def export_gif(self, agvs: list[AGV], makespan: int,
+                   path: str = "output/animation.gif", fps: int = 15, dpi: int = 100) -> str:
+        frames = self._render_frames(agvs, makespan)
         if frames:
             from PIL import Image
             Path(path).parent.mkdir(parents=True, exist_ok=True)
             imgs = [Image.fromarray(f) for f in frames]
             imgs[0].save(path, save_all=True, append_images=imgs[1:],
                          duration=1000 // fps, loop=0)
+        return path
+
+    def export_mp4(self, agvs: list[AGV], makespan: int,
+                   path: str = "output/animation.mp4", fps: int = 15, dpi: int = 100) -> str:
+        Path(path).parent.mkdir(parents=True, exist_ok=True)
+        from matplotlib.animation import FFMpegWriter
+        writer = FFMpegWriter(fps=fps)
+        step = 0
+        fig = self.plot_snapshot(agvs, 0)
+        with writer.saving(fig, path, dpi=dpi):
+            writer.grab_frame()
+            plt.close(fig)
+            step += max(1, makespan // 300)
+            while step < makespan:
+                fig = self.plot_snapshot(agvs, step)
+                writer.grab_frame()
+                plt.close(fig)
+                step += max(1, makespan // 300)
         return path
 
     def export_static_plots(self, agvs: list[AGV], makespan: int,

@@ -157,5 +157,7 @@ if __name__ == "__main__":
         # 可视化
         viz = Visualizer(wmap, config)
         viz.export_static_plots(sim.get_agvs(), result.makespan, output_dir="output/")
+        print("  生成MP4动画...")
+        viz.export_mp4(sim.get_agvs(), result.makespan)
         ResultExporter.export_json(result, "output/result.json")
         print("\n  输出已保存到 output/")
