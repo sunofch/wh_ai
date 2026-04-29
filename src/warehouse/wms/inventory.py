@@ -22,31 +22,34 @@ class InventoryManager:
 
     def _init_inventory(self, seed: int):
         rng = random.Random(seed)
-        # 为每个储位分配随机库存
-        model_names = [f"M{i * 100}" for i in range(1, 20)]
-        part_names = ["电机", "液压泵", "传感器", "控制器", "齿轮箱",
-                      "密封件", "轴承", "阀门", "电缆", "过滤器",
-                      "联轴器", "制动器", "气缸", "油管", "开关",
-                      "继电器", "风扇", "散热器", "螺栓"]
+        model_names = [f"M{i * 100}" for i in range(1, 50)]
+        part_names = {
+            "mechanical": ["轴承", "齿轮", "液压泵", "联轴器", "制动器"],
+            "electrical": ["电机", "传感器", "电缆", "控制器", "继电器"],
+            "consumable": ["密封件", "润滑油", "滤芯", "阀门", "油管"],
+            "safety": ["安全帽", "手套", "护目镜", "安全带", "防护服"],
+            "tool": ["扳手", "万用表", "电钻", "螺丝刀", "钳子"],
+        }
 
         idx = 0
-        for wh_name, wcfg in self.config.warehouse_zones.items():
-            zone_prefix = wh_name.split("_")[0] if "_" in wh_name else wh_name
-            zone = "".join(c for c in zone_prefix if not c.isdigit()) or "Misc"
-            for si in range(1, 5):
-                sname = f"{wh_name}_S{si}"
-                qty = rng.randint(0, 3)
-                model = model_names[idx % len(model_names)]
-                self._storage_status[sname] = qty
-                if model not in self._items:
-                    self._items[model] = InventoryItem(
-                        model=model,
-                        part_name=part_names[idx % len(part_names)],
-                        quantity=qty,
-                        location=sname,
-                        zone=zone,
-                    )
-                idx += 1
+        for zone_name, zone_cfg in self.config.rack_zones.items():
+            zone_type = zone_cfg.zone_type
+            parts = part_names.get(zone_type, ["备件"])
+            for row in range(1, zone_cfg.num_rows + 1):
+                for bay in range(1, zone_cfg.bays_per_row + 1):
+                    sname = f"{zone_name}_R{row}_B{bay}"
+                    qty = rng.randint(0, 3)
+                    model = model_names[idx % len(model_names)]
+                    self._storage_status[sname] = qty
+                    if model not in self._items:
+                        self._items[model] = InventoryItem(
+                            model=model,
+                            part_name=parts[idx % len(parts)],
+                            quantity=qty,
+                            location=sname,
+                            zone=zone_name,
+                        )
+                    idx += 1
 
     def query_by_model(self, model: str) -> InventoryItem | None:
         return self._items.get(model)
@@ -91,7 +94,7 @@ class InventoryManager:
 
     def get_all_zone_names(self) -> list[str]:
         """返回所有仓库区名"""
-        return list(self.config.warehouse_zones.keys())
+        return list(self.config.rack_zones.keys())
 
     def get_storage_names(self) -> list[str]:
         """返回所有储位名"""
