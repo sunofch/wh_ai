@@ -3,11 +3,11 @@
 
 from src.warehouse.maps.base import MapRegistry
 from src.warehouse.wms.order_manager import OrderManager
-import src.warehouse.maps.medium_50x50
+import src.warehouse.maps.medium_57x47
 
 
 def _make_om():
-    cfg = MapRegistry.get("medium_50x50")
+    cfg = MapRegistry.get("medium_57x47")
     return OrderManager(cfg)
 
 
@@ -38,6 +38,6 @@ def test_random_orders():
 def test_random_orders_deterministic():
     om = _make_om()
     orders1 = om.from_random(5)
-    om2 = OrderManager(MapRegistry.get("medium_50x50"))
+    om2 = OrderManager(MapRegistry.get("medium_57x47"))
     orders2 = om2.from_random(5)
     assert len(orders1) == len(orders2)

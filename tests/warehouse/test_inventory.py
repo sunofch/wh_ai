@@ -3,17 +3,17 @@
 
 from src.warehouse.maps.base import MapRegistry
 from src.warehouse.wms.inventory import InventoryManager
-import src.warehouse.maps.medium_50x50
+import src.warehouse.maps.medium_57x47
 
 
 def _make_inv():
-    cfg = MapRegistry.get("medium_50x50")
+    cfg = MapRegistry.get("medium_57x47")
     return InventoryManager(cfg)
 
 
 def test_inventory_storage_count():
     inv = _make_inv()
-    assert len(inv.get_storage_names()) == 450
+    assert len(inv.get_storage_names()) == 540
 
 
 def test_inventory_zone_names():
@@ -36,7 +36,7 @@ def test_inventory_storage_name_format():
 def test_inventory_status():
     inv = _make_inv()
     status = inv.get_status()
-    assert len(status) == 450
+    assert len(status) == 540
     for qty in status.values():
         assert 0 <= qty <= 3
 

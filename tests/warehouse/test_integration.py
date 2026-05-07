@@ -9,12 +9,12 @@ from src.warehouse.wms.order_manager import OrderManager
 from src.warehouse.wes.task_decomposer import TaskDecomposer
 from src.warehouse.wes.clustering import OrderClusterer
 from src.warehouse.simulation.simulator import Simulator
-import src.warehouse.maps.medium_50x50
+import src.warehouse.maps.medium_57x47
 
 
 def test_full_pipeline():
     """端到端：地图→订单→分解→聚类→调度→仿真"""
-    cfg = MapRegistry.get("medium_50x50")
+    cfg = MapRegistry.get("medium_57x47")
     wmap = WarehouseMap(cfg)
     config = WarehouseConfig(ORDER_NUM=10)
 
@@ -45,7 +45,7 @@ def test_full_pipeline():
 
 def test_pipeline_no_cache():
     """禁用缓存也能运行"""
-    cfg = MapRegistry.get("medium_50x50")
+    cfg = MapRegistry.get("medium_57x47")
     wmap = WarehouseMap(cfg)
     from src.warehouse.models import AblationFlags
     config = WarehouseConfig(

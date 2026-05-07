@@ -11,20 +11,19 @@ AGV 智能仓储调度系统 v2.0 — 仿真测试入口
     python main_simulation.py [地图名] [订单数]
 
     参数:
-        地图名   - 可选，默认 medium_50x50
-                  可选值: medium_50x50
+        地图名   - 可选，默认 medium_57x47
+                  可选值: medium_57x47
         订单数   - 可选，默认 40
 
 【消融实验】
     python main_simulation.py --ablation [地图名] [订单数]
 
-    运行 6 组消融实验对比:
+    运行 5 组消融实验对比:
     - Baseline (无优化): 关闭所有模块
     - M1 (路径缓存): 仅启用路径缓存
     - M1+M2 (+聚类): 路径缓存 + 方向感知聚类
     - M1+M2+M3 (+TSP): + 双向 Batch TSP
     - M1+M2+M3+M4 (+CP-SAT): + CP-SAT 全局分配
-    - Full (全模块): 所有模块启用
 ====================================
 运行示例
 ====================================
@@ -33,13 +32,13 @@ AGV 智能仓储调度系统 v2.0 — 仿真测试入口
 python main_simulation.py
 
 # 2. 指定地图和订单数
-python main_simulation.py medium_50x50 60
+python main_simulation.py medium_57x47 60
 
 # 3. 运行消融实验
 python main_simulation.py --ablation
 
 # 4. 消融实验指定订单数
-python main_simulation.py --ablation medium_50x50 20
+python main_simulation.py --ablation medium_57x47 20
 
 ====================================
 技术特性
@@ -71,7 +70,7 @@ from src.warehouse.simulation.metrics import MetricsCollector
 from src.warehouse.models import AblationFlags
 
 # 注册所有地图
-import src.warehouse.maps.medium_50x50  # noqa: F401
+import src.warehouse.maps.medium_57x47  # noqa: F401
 
 
 def run_single(config: WarehouseConfig, map_name: str, order_num: int):
@@ -101,12 +100,11 @@ def run_single(config: WarehouseConfig, map_name: str, order_num: int):
 def run_ablation(config: WarehouseConfig, map_name: str, order_num: int):
     """消融实验"""
     ablation_groups = [
-        {"name": "Baseline (无优化)", "flags": AblationFlags(enable_path_cache=False, enable_clustering=False, enable_tsp=False, enable_cp_sat=False, enable_conflict_avoid=False)},
-        {"name": "M1 (路径缓存)", "flags": AblationFlags(enable_clustering=False, enable_tsp=False, enable_cp_sat=False, enable_conflict_avoid=False)},
-        {"name": "M1+M2 (+聚类)", "flags": AblationFlags(enable_tsp=False, enable_cp_sat=False, enable_conflict_avoid=False)},
-        {"name": "M1+M2+M3 (+TSP)", "flags": AblationFlags(enable_cp_sat=False, enable_conflict_avoid=False)},
-        {"name": "M1+M2+M3+M4 (+CP-SAT)", "flags": AblationFlags(enable_conflict_avoid=False)},
-        {"name": "Full (全模块)", "flags": AblationFlags()},
+        {"name": "Baseline (无优化)", "flags": AblationFlags(enable_path_cache=False, enable_clustering=False, enable_tsp=False, enable_cp_sat=False)},
+        {"name": "M1 (路径缓存)", "flags": AblationFlags(enable_clustering=False, enable_tsp=False, enable_cp_sat=False)},
+        {"name": "M1+M2 (+聚类)", "flags": AblationFlags(enable_tsp=False, enable_cp_sat=False)},
+        {"name": "M1+M2+M3 (+TSP)", "flags": AblationFlags(enable_cp_sat=False)},
+        {"name": "M1+M2+M3+M4 (+CP-SAT)", "flags": AblationFlags()},
     ]
 
     results = {}
@@ -153,7 +151,6 @@ if __name__ == "__main__":
         print(f"  总距离: {result.total_distance}")
         print(f"  AGV利用率: {result.agv_utilization:.2%}")
         print(f"  规划耗时: {result.planning_time:.2f}s")
-        print(f"  冲突次数: {result.conflict_count}")
 
         MetricsCollector.export_json(result, "output/result.json")
         print("\n  结果已保存到 output/result.json")

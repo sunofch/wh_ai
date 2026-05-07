@@ -106,7 +106,6 @@ class TrajectoryStep(BaseModel):
 class SimulationResult(BaseModel):
     makespan: int = 0
     total_distance: int = 0
-    conflict_count: int = 0
     yield_count: int = 0
     yield_time: int = 0
     planning_time: float = 0.0
@@ -123,35 +122,17 @@ class AblationFlags(BaseModel):
     enable_clustering: bool = True       # M2: OrderClusterer
     enable_tsp: bool = True              # M3: TSPSolver
     enable_cp_sat: bool = True           # M4: CP-SAT全局分配
-    enable_conflict_avoid: bool = True   # M5: ConflictManager
 
 
 # ── 货架区域配置 ──
-
-class RackRow(BaseModel):
-    """一行货架"""
-    row_id: str
-    positions: list[str]
-    y_offset: int
-
-
-class AisleConfig(BaseModel):
-    """巷道配置"""
-    aisle_id: str
-    direction: str           # "down" | "up"
-    y_offset: int
-
 
 class RackZoneConfig(BaseModel):
     """货架区域配置"""
     zone_id: str
     zone_type: str           # "mechanical" | "electrical" | "consumable" | "safety" | "tool"
-    pos: tuple[int, int]
-    width: int = 14
-    height: int = 10
-    num_rows: int = 5
-    bays_per_row: int = 10
-    sub_aisle_cols: list[int] = Field(default_factory=lambda: [3, 6, 9, 12])
+    pos: tuple[int, int]     # 左上角位置
+    width: int = 14          # 区域宽度（列数）
+    height: int = 10         # 区域高度（行数）
     color: str = ""
 
 
@@ -163,13 +144,7 @@ class MapConfig(BaseModel):
     grid_size: int
     description: str = ""
     rack_zones: dict[str, RackZoneConfig] = {}
-    main_aisle_width: int = 3
-    sub_aisle_width: int = 1
     ports: dict[str, dict] = {}
     agv_init_positions: list[tuple[int, int]] = []
     agv_count: int = 8
-    conflict_segments: dict[str, dict] = {}
-    yield_points: dict[str, tuple[int, int]] = {}
     charging_points: list[tuple[int, int]] = []
-    main_channels_x: list[int] = []
-    main_channels_y: list[int] = []

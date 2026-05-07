@@ -1,15 +1,15 @@
 # tests/warehouse/test_pathfinding.py
-"""寻路测试 — 时空A* + 方向约束"""
+"""寻路测试 — 时空A* 全双向"""
 
 from src.warehouse.maps.base import MapRegistry
 from src.warehouse.fleet.map_builder import WarehouseMap
 from src.warehouse.fleet.pathfinding import PathFinder
 from src.warehouse.wms.config import WarehouseConfig
-import src.warehouse.maps.medium_50x50
+import src.warehouse.maps.medium_57x47
 
 
 def _make_pf():
-    cfg = MapRegistry.get("medium_50x50")
+    cfg = MapRegistry.get("medium_57x47")
     wmap = WarehouseMap(cfg)
     config = WarehouseConfig()
     return PathFinder(wmap, config), wmap
@@ -35,7 +35,8 @@ def test_path_to_storage():
 def test_path_cross_zone():
     pf, wmap = _make_pf()
     start = wmap.zone_pos["Mech1_R1_B1"]
-    end = wmap.zone_pos["Cons3_R5_B10"]
+    end = wmap.zone_pos.get("Cons3_R5_B10") or wmap.zone_pos.get("Cons3_R3_B10")
+    assert end is not None, "Cons3 storage not found"
     path, dist = pf.find_base_path(start, end)
     assert len(path) > 1
 

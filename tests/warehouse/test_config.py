@@ -7,7 +7,7 @@ from src.warehouse.models import AblationFlags
 
 def test_default_config():
     config = WarehouseConfig()
-    assert config.MAP_NAME == "medium_50x50"
+    assert config.MAP_NAME == "medium_57x47"
     assert config.AGV_MOVE_TIME == 1
     assert config.ORDER_NUM == 40
 
@@ -18,7 +18,6 @@ def test_ablation_flags():
     assert flags.enable_clustering is True
     assert flags.enable_tsp is True
     assert flags.enable_cp_sat is True
-    assert flags.enable_conflict_avoid is True
 
 
 def test_ablation_flags_custom():

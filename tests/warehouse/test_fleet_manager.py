@@ -5,11 +5,11 @@ from src.warehouse.maps.base import MapRegistry
 from src.warehouse.fleet.map_builder import WarehouseMap
 from src.warehouse.fleet.fleet_manager import FleetManager
 from src.warehouse.wms.config import WarehouseConfig
-import src.warehouse.maps.medium_50x50
+import src.warehouse.maps.medium_57x47
 
 
 def _make_fleet():
-    cfg = MapRegistry.get("medium_50x50")
+    cfg = MapRegistry.get("medium_57x47")
     wmap = WarehouseMap(cfg)
     config = WarehouseConfig()
     return FleetManager(wmap, config), wmap

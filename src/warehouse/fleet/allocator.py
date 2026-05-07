@@ -23,22 +23,21 @@ class TaskAllocator:
 
     def _calc_cluster_time(self, cluster: TaskCluster, agv_pos: tuple[int, int],
                            zone_pos: dict[str, tuple[int, int]]) -> int:
+        """用 TSP 精确计算簇执行时间"""
         sorted_tasks, total_dist = self.tsp.optimize(cluster.tasks, agv_pos, zone_pos)
         c = self.config
 
-        # 统计 batch 数量（连续同 dest = OUTBOUND batch, 连续同 pick = INBOUND batch）
         n_batches = 0
         i = 0
         while i < len(sorted_tasks):
             j = i + 1
-            # 连续同 dest → OUTBOUND batch
             while j < len(sorted_tasks) and sorted_tasks[j].dest == sorted_tasks[i].dest:
                 j += 1
             if j > i + 1:
                 n_batches += 1
                 i = j
                 continue
-            # 连续同 pick → INBOUND batch
+            j = i + 1
             while j < len(sorted_tasks) and sorted_tasks[j].pick == sorted_tasks[i].pick:
                 j += 1
             if j > i + 1:
@@ -49,8 +48,6 @@ class TaskAllocator:
             i += 1
         n_tasks = len(sorted_tasks)
 
-        # turn/accel/decel 按 batch 数（batch 内连续取货是一趟）
-        # load N 次 + unload N 次（物理上逐个操作）
         return (total_dist * c.AGV_MOVE_TIME
                 + n_batches * c.AGV_TURN_TIME
                 + (c.AGV_ACCEL_TIME + c.AGV_DECEL_TIME) * n_batches
@@ -68,16 +65,14 @@ class TaskAllocator:
 
         # 计算代价矩阵
         cost_matrix = []
-        max_cost = 0
         for agv in agv_states:
             row = []
             for cluster in clusters:
                 t = self._calc_cluster_time(cluster, agv.init_pos, zone_pos)
                 row.append(t)
-                if t > max_cost:
-                    max_cost = t
             cost_matrix.append(row)
 
+        max_cost = max(max(row) for row in cost_matrix) if cost_matrix else 1
         upper = int(max_cost * cluster_num * 1.2) + 1
 
         model = cp_model.CpModel()
@@ -92,14 +87,17 @@ class TaskAllocator:
         for v in range(cluster_num):
             model.Add(sum(x[(k, v)] for k in range(agv_num)) == 1)
 
-        # 容量约束
+        # 容量约束：动态上限（基于实际任务数）
+        total_all = sum(c.task_num for c in clusters)
+        avg_per_agv = total_all / agv_num if agv_num > 0 else 0
+        dynamic_capacity = max(int(avg_per_agv * 1.5), max(c.task_num for c in clusters) + 1)
         for k in range(agv_num):
             total_tasks = sum(x[(k, v)] * clusters[v].task_num for v in range(cluster_num))
-            model.Add(total_tasks <= self.config.AGV_MAX_TASK_CAPACITY * 2)
+            model.Add(total_tasks <= dynamic_capacity)
 
         # 紧急优先级约束
         for v in range(cluster_num):
-            if clusters[v].priority == 10:  # URGENT
+            if clusters[v].priority == 10:
                 min_cost = min(cost_matrix[k][v] for k in range(agv_num))
                 for k in range(agv_num):
                     if cost_matrix[k][v] > min_cost * 1.2:
@@ -125,7 +123,6 @@ class TaskAllocator:
                 for v in range(cluster_num):
                     if solver.Value(x[(k, v)]) == 1:
                         result[agv_states[k].agv_id].append(clusters[v])
-            # 计算实际makespan
             ms = 0
             for k in range(agv_num):
                 t = sum(cost_matrix[k][v]

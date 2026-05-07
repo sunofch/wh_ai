@@ -41,8 +41,6 @@ class MetricsCollector:
         total_available = len(agvs) * makespan if makespan > 0 else 1
         utilization = min(total_active / total_available, 1.0) if total_available > 0 else 0.0
 
-        conflict_count = len(st_table.segment_occupation) // 20
-
         trajectories = {}
         for agv in agvs:
             trajectories[agv.agv_id] = [
@@ -54,7 +52,6 @@ class MetricsCollector:
         return SimulationResult(
             makespan=makespan,
             total_distance=total_distance,
-            conflict_count=conflict_count,
             yield_count=yield_count,
             yield_time=yield_time,
             planning_time=planning_time,

@@ -10,7 +10,7 @@ class WarehouseConfig(BaseSettings):
     model_config = SettingsConfigDict(env_prefix="WH_")
 
     # 地图
-    MAP_NAME: str = "medium_50x50"
+    MAP_NAME: str = "medium_57x47"
 
     # AGV运动参数
     AGV_MOVE_TIME: int = 1

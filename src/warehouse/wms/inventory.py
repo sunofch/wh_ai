@@ -35,8 +35,11 @@ class InventoryManager:
         for zone_name, zone_cfg in self.config.rack_zones.items():
             zone_type = zone_cfg.zone_type
             parts = part_names.get(zone_type, ["备件"])
-            for row in range(1, zone_cfg.num_rows + 1):
-                for bay in range(1, zone_cfg.bays_per_row + 1):
+            num_rows = min(zone_cfg.height // 2, 5)
+            num_groups = 4  # SSS.SSS.SSS.SSS = 4组
+            bays_per_row = num_groups * 3  # 每组3个储位 = 12
+            for row in range(1, num_rows + 1):
+                for bay in range(1, bays_per_row + 1):
                     sname = f"{zone_name}_R{row}_B{bay}"
                     qty = rng.randint(0, 3)
                     model = model_names[idx % len(model_names)]

@@ -3,15 +3,7 @@
 
 from __future__ import annotations
 import heapq
-from collections import defaultdict
 from typing import TYPE_CHECKING
-
-import numpy as np
-
-from src.warehouse.fleet.map_builder import (
-    MAP_PASSABLE, MAP_STORAGE, MAP_PORT, MAP_YIELD_POINT, MAP_CHARGING,
-    MAP_AISLE_DOWN, MAP_AISLE_UP, MAP_SUB_AISLE,
-)
 
 if TYPE_CHECKING:
     from src.warehouse.fleet.map_builder import WarehouseMap
@@ -36,8 +28,6 @@ class SpaceTimeTable:
         self.grid_size = grid_size
         self.max_step = max_step
         self.occupation: dict[tuple, int] = {}
-        self.segment_occupation: dict[tuple, tuple[int, str]] = {}
-        self.yield_point_occupation: dict[tuple, int] = {}
         self.path_calc_count: int = 0
 
     def check_occupation(self, x: int, y: int, t_start: int, t_end: int, agv_id: int) -> tuple[bool, int | None]:
@@ -50,30 +40,6 @@ class SpaceTimeTable:
     def lock_occupation(self, x: int, y: int, t_start: int, t_end: int, agv_id: int) -> None:
         for t in range(t_start, t_end + 1):
             self.occupation[(x, y, t)] = agv_id
-
-    def check_segment(self, seg_id: str, direction: str, t_start: int, t_end: int, agv_id: int) -> tuple[bool, int | None]:
-        for t in range(t_start, t_end + 1):
-            key = (seg_id, t)
-            if key in self.segment_occupation:
-                occ_agv, occ_dir = self.segment_occupation[key]
-                if occ_agv != agv_id and occ_dir != direction:
-                    return False, occ_agv
-        return True, None
-
-    def lock_segment(self, seg_id: str, direction: str, t_start: int, t_end: int, agv_id: int) -> None:
-        for t in range(t_start, t_end + 1):
-            self.segment_occupation[(seg_id, t)] = (agv_id, direction)
-
-    def check_yield_point(self, yp_id: str, t_start: int, t_end: int, agv_id: int) -> tuple[bool, int | None]:
-        for t in range(t_start, t_end + 1):
-            key = (yp_id, t)
-            if key in self.yield_point_occupation and self.yield_point_occupation[key] != agv_id:
-                return False, self.yield_point_occupation[key]
-        return True, None
-
-    def lock_yield_point(self, yp_id: str, t_start: int, t_end: int, agv_id: int) -> None:
-        for t in range(t_start, t_end + 1):
-            self.yield_point_occupation[(yp_id, t)] = agv_id
 
 
 class PathFinder:
@@ -97,32 +63,13 @@ class PathFinder:
     def _heuristic(a: tuple[int, int], b: tuple[int, int]) -> int:
         return abs(a[0] - b[0]) + abs(a[1] - b[1])
 
-    def _is_passable(self, cur: tuple[int, int], nxt: tuple[int, int], cur_dir_str: str, move_dir_str: str) -> bool:
+    def _is_passable(self, cur: tuple[int, int], nxt: tuple[int, int]) -> bool:
         gs = self.wmap.config.grid_size
         nx, ny = nxt
         if not (0 <= nx < gs and 0 <= ny < gs):
             return False
         cell = self.grid[ny][nx]
-        if cell == 0:  # MAP_OBSTACLE
-            return False
-        if cell == MAP_AISLE_DOWN:
-            dx, dy = nx - cur[0], ny - cur[1]
-            if dy < 0:
-                return False
-        if cell == MAP_AISLE_UP:
-            dx, dy = nx - cur[0], ny - cur[1]
-            if dy > 0:
-                return False
-        return True
-
-    def _is_in_conflict_segment(self, pos: tuple[int, int]) -> tuple[str | None, str | None]:
-        for seg_id, seg_info in self.wmap.config.conflict_segments.items():
-            start, end = seg_info["start"], seg_info["end"]
-            if start[1] == end[1] == pos[1] and min(start[0], end[0]) <= pos[0] <= max(start[0], end[0]):
-                return seg_id, seg_info["direction"]
-            if start[0] == end[0] == pos[0] and min(start[1], end[1]) <= pos[1] <= max(start[1], end[1]):
-                return seg_id, seg_info["direction"]
-        return None, None
+        return cell != 0  # MAP_OBSTACLE
 
     def find_base_path(self, start: tuple, end: tuple) -> tuple[list[tuple[int, int]], int]:
         """基础A*（无时空约束），带缓存"""
@@ -166,7 +113,7 @@ class PathFinder:
             for dx, dy, _, move_dir_str in DIRECTIONS:
                 nx, ny = x + dx, y + dy
                 nxt = (nx, ny)
-                if not self._is_passable((x, y), nxt, cur_dir, move_dir_str):
+                if not self._is_passable((x, y), nxt):
                     continue
                 new_g = cur_g + 1
                 ns = (nx, ny, move_dir_str)
@@ -231,24 +178,8 @@ class PathFinder:
                 nxt = (nx, ny)
                 next_t = cur_t + c.AGV_MOVE_TIME
 
-                if not self._is_passable((x, y), nxt, cur_dir, move_dir_str):
+                if not self._is_passable((x, y), nxt):
                     continue
-
-                # 冲突路段检测
-                if self.config.ablation.enable_conflict_avoid:
-                    seg_id, seg_dir = self._is_in_conflict_segment(nxt)
-                    if seg_id:
-                        seg_free, _ = self.st_table.check_segment(seg_id, seg_dir, cur_t + 1, next_t, agv_id)
-                        if not seg_free:
-                            yp_id = self.wmap.config.conflict_segments[seg_id]["yield_points"][0]
-                            yp_free, _ = self.st_table.check_yield_point(yp_id, cur_t + 1, cur_t + 15, agv_id)
-                            if yp_free:
-                                self.st_table.lock_yield_point(yp_id, cur_t + 1, cur_t + 15, agv_id)
-                                yp_pos = self.wmap.config.yield_points[yp_id]
-                                nxt = yp_pos
-                                next_t = cur_t + 15
-                            else:
-                                continue
 
                 # 时空占用检查
                 is_free, _ = self.st_table.check_occupation(nx, ny, cur_t + 1, next_t, agv_id)
@@ -275,7 +206,6 @@ class PathFinder:
         if not self.config.ablation.enable_path_cache:
             return
         key_points = []
-        # Use first storage of each zone as representative key point
         for zone in self.wmap.rack_zone_names:
             first = f"{zone}_R1_B1"
             if first in self.wmap.zone_pos:
