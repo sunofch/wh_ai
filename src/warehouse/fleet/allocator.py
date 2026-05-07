@@ -23,35 +23,12 @@ class TaskAllocator:
 
     def _calc_cluster_time(self, cluster: TaskCluster, agv_pos: tuple[int, int],
                            zone_pos: dict[str, tuple[int, int]]) -> int:
-        """用 TSP 精确计算簇执行时间"""
+        """用 TSP 精确计算簇执行时间（与仿真器代价模型对齐）"""
         sorted_tasks, total_dist = self.tsp.optimize(cluster.tasks, agv_pos, zone_pos)
         c = self.config
-
-        n_batches = 0
-        i = 0
-        while i < len(sorted_tasks):
-            j = i + 1
-            while j < len(sorted_tasks) and sorted_tasks[j].dest == sorted_tasks[i].dest:
-                j += 1
-            if j > i + 1:
-                n_batches += 1
-                i = j
-                continue
-            j = i + 1
-            while j < len(sorted_tasks) and sorted_tasks[j].pick == sorted_tasks[i].pick:
-                j += 1
-            if j > i + 1:
-                n_batches += 1
-                i = j
-                continue
-            n_batches += 1
-            i += 1
         n_tasks = len(sorted_tasks)
 
-        return (total_dist * c.AGV_MOVE_TIME
-                + n_batches * c.AGV_TURN_TIME
-                + (c.AGV_ACCEL_TIME + c.AGV_DECEL_TIME) * n_batches
-                + n_tasks * 2 * c.AGV_LOAD_UNLOAD_TIME)
+        return total_dist * c.AGV_MOVE_TIME + n_tasks * 2 * c.AGV_LOAD_UNLOAD_TIME
 
     def allocate(self, clusters: list[TaskCluster], agv_states: list[AGVState],
                  zone_pos: dict[str, tuple[int, int]]) -> tuple[dict[int, list[TaskCluster]], int]:
