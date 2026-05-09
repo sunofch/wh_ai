@@ -35,8 +35,3 @@ class ChargingScheduler:
         )
         return path, path_times, nearest
 
-    def estimate_battery_usage(self, path_length: int) -> int:
-        return path_length * self.config.AGV_CONSUME_RATE
-
-    def need_charge(self, battery: int, estimated_usage: int) -> bool:
-        return (battery - estimated_usage) < self.config.AGV_LOW_BATTERY_THRESHOLD

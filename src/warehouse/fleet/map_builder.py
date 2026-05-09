@@ -104,14 +104,3 @@ class WarehouseMap:
         cell = self.grid[y, x]
         return cell != MAP_OBSTACLE
 
-    def get_distance_matrix(self) -> dict[str, int]:
-        """返回 zone_pos 中所有点对的曼哈顿距离矩阵"""
-        dist = {}
-        names = list(self.zone_pos.keys())
-        for i, n1 in enumerate(names):
-            for n2 in names[i + 1:]:
-                p1, p2 = self.zone_pos[n1], self.zone_pos[n2]
-                d = abs(p1[0] - p2[0]) + abs(p1[1] - p2[1])
-                dist[f"{n1}_{n2}"] = d
-                dist[f"{n2}_{n1}"] = d
-        return dist

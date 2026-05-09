@@ -7,15 +7,11 @@
 """
 
 from __future__ import annotations
-from typing import TYPE_CHECKING
 import random
 
 import numpy as np
 
 from src.warehouse.models import InventoryItem, MapConfig
-
-if TYPE_CHECKING:
-    pass
 
 
 class InventoryManager:

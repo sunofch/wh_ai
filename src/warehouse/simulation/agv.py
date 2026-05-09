@@ -23,14 +23,6 @@ class AGV:
             (init_pos[0], init_pos[1], "idle", -1) for _ in range(max_steps)
         ]
 
-    def record_path(self, path: list[tuple[int, int]], start_t: int,
-                    state: str, task_id: int) -> int:
-        for i, pos in enumerate(path):
-            t = start_t + i
-            if t < len(self.trajectory):
-                self.trajectory[t] = (pos[0], pos[1], state, task_id)
-        return start_t + len(path) - 1
-
     def record_path_timed(self, path: list[tuple[int, int]], path_times: list[int],
                           state: str, task_id: int) -> int:
         """记录带非均匀时间步的路径，转弯/加速期间AGV停留在原位"""

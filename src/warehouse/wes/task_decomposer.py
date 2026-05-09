@@ -8,8 +8,6 @@
 
 from __future__ import annotations
 import random
-from typing import Optional
-
 from src.warehouse.models import (
     WorkOrder, OrderItem, TransportTask, TaskType, OrderPriority,
 )
