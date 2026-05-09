@@ -1,5 +1,15 @@
 # src/warehouse/fleet/tsp.py
-"""OR-Tools TSP任务排序（支持双向batch：OUTBOUND多取一送 + INBOUND一取多送）"""
+"""OR-Tools TSP任务排序（支持双向batch）
+
+batch常驻设计: TSP始终按batch分组处理任务, 消融开关只控制是否用OR-Tools优化。
+  - OUTBOUND batch: 按dest分组 → 多取一送 ([取→取→取]→送)
+  - INBOUND batch: 按pick分组 → 一取多送 (取→[送→送→送])
+
+排序流程:
+  1. 按方向分离任务, 分别按dest/pick分组为batch
+  2. batch间用OR-Tools TSP或优先级排序
+  3. 逐batch内部用最近邻排序pick/dest点
+"""
 
 from __future__ import annotations
 from collections import defaultdict

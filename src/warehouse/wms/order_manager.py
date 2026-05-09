@@ -1,5 +1,10 @@
 # src/warehouse/wms/order_manager.py
-"""工单生成"""
+"""工单生成
+
+两种来源:
+  - from_random: 随机生成工单(用于仿真测试), 每单2-6项, 10%概率紧急
+  - from_port_instruction: 从VLM解析的PortInstruction生成工单
+"""
 
 from __future__ import annotations
 import random

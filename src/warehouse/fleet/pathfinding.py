@@ -1,5 +1,12 @@
 # src/warehouse/fleet/pathfinding.py
-"""时空A*路径规划 + 缓存"""
+"""时空A*路径规划 + 缓存
+
+两层路径规划:
+  - find_base_path: 基础A*(无时空约束), 用于TSP距离计算, 带路径缓存
+  - find_path: 时空A*(含冲突检测), 用于仿真执行, 考虑转弯/加速代价
+
+时空占用表(SpaceTimeTable)追踪每个(x,y,t)的AGV占用, 避免碰撞。
+"""
 
 from __future__ import annotations
 import heapq
@@ -22,7 +29,7 @@ DIRECTIONS = [
 
 
 class SpaceTimeTable:
-    """时空占用表"""
+    """时空占用表: 追踪每个(x, y, t)格子的AGV占用情况"""
 
     def __init__(self, grid_size: int, max_step: int = 15000):
         self.grid_size = grid_size
@@ -45,7 +52,12 @@ class SpaceTimeTable:
 
 
 class PathFinder:
-    """时空A*路径规划器"""
+    """时空A*路径规划器
+
+    提供两种模式:
+      - find_base_path: 无时空约束的纯A*, 缓存结果用于TSP距离估算
+      - find_path: 带时空占用的A*, 用于仿真中的实际路径规划
+    """
 
     def __init__(self, warehouse_map: WarehouseMap, config: WarehouseConfig):
         self.wmap = warehouse_map
@@ -75,7 +87,11 @@ class PathFinder:
         return cell != 0  # MAP_OBSTACLE
 
     def find_base_path(self, start: tuple, end: tuple) -> tuple[list[tuple[int, int]], int]:
-        """基础A*（无时空约束），带缓存"""
+        """基础A*（无时空约束，方向感知），带缓存
+
+        用于TSP距离计算。状态空间为(x, y, direction), 避免路径出现不合理转弯。
+        返回 (路径坐标列表, 路径长度)。
+        """
         self.st_table.path_calc_count += 1
         start = (int(start[0]), int(start[1]))
         end = (int(end[0]), int(end[1]))
@@ -133,7 +149,12 @@ class PathFinder:
 
     def find_path(self, start: tuple, end: tuple, load_state: int,
                   init_dir, current_step: int, agv_id: int):
-        """时空A*（带冲突检测），返回 (path, turns, total_time, path_times)"""
+        """时空A*（带冲突检测），返回 (path, turns, total_time, path_times)
+
+        每步代价 = AGV_MOVE_TIME + (转弯 ? AGV_TURN_TIME : 0) + (起步 ? AGV_ACCEL_TIME : 0)
+        冲突时AGV原地等待1步再重新搜索。搜索上限 A_MAX_SEARCH 步。
+        返回非均匀时间步的路径: path_times[i] 表示到达 path[i] 的时刻。
+        """
         start = (int(start[0]), int(start[1]))
         end = (int(end[0]), int(end[1]))
         if start == end:
@@ -244,7 +265,7 @@ class PathFinder:
         return path, turns, total_time, path_times
 
     def precompute_all_paths(self) -> None:
-        """预计算所有关键点之间的路径"""
+        """预计算所有关键点之间的路径(每个区域首个储位 + 端口 + AGV初始位置)"""
         if not self.config.ablation.enable_path_cache:
             return
         key_points = []
@@ -260,6 +281,7 @@ class PathFinder:
                     self.find_base_path(start, end)
 
     def get_distance(self, start: tuple, end: tuple) -> int:
+        """获取两点间的A*最短距离(步数), 优先查缓存"""
         start = (int(start[0]), int(start[1]))
         end = (int(end[0]), int(end[1]))
         cache_key = f"{start[0]}_{start[1]}_{end[0]}_{end[1]}"
@@ -270,7 +292,7 @@ class PathFinder:
 
     def lock_path(self, path: list[tuple[int, int]], path_times: list[int],
                   agv_id: int) -> None:
-        """锁定路径的时空占用，path_times 为每个位置的到达时刻"""
+        """锁定路径的时空占用: 每个位置从到达时刻到下一位置到达前一刻"""
         for i, (x, y) in enumerate(path):
             t_start = path_times[i]
             # 占用到下一位置到达前一刻（含转弯/加速停留）
@@ -280,7 +302,7 @@ class PathFinder:
                 self.st_table.lock_occupation(x, y, t_start, t_end, agv_id)
 
     def lock_wait(self, pos: tuple[int, int], start_t: int, duration: int, agv_id: int) -> None:
-        """锁定等待期间（装卸/充电）的时空占用"""
+        """锁定等待期间的时空占用(装卸/充电时AGV停留在原位)"""
         x, y = pos
         end_t = min(start_t + duration - 1, self.st_table.max_step - 1)
         if start_t <= end_t:

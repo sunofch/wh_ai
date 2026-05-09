@@ -1,5 +1,12 @@
 # src/warehouse/maps/medium_57x47.py
-"""港口备件仓库 57×47 — 9区域行列式货架，6端口对称布局，全双向通道"""
+"""港口备件仓库 57×47 — 9区域行列式货架，6端口对称布局，全双向通道
+
+布局:
+  - 9个货架区: 上中下三排×左中右三列, 分5类(mechanical/electrical/consumable/safety/tool)
+  - 6个端口: 3个入库(IN-L/C/R)在顶部, 3个出库(OUT-L/C/R)在底部, 每端口3个泊位
+  - 8台AGV: 分布在端口下方和货架区间
+  - 4个充电桩: 四角位置
+"""
 
 from src.warehouse.maps.base import MapRegistry, BaseMap
 from src.warehouse.models import MapConfig, RackZoneConfig

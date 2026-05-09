@@ -1,5 +1,9 @@
 # src/warehouse/fleet/fleet_manager.py
-"""Fleet层总调度编排（路线A：保持簇边界 + 簇间TSP排序）"""
+"""Fleet层总调度编排
+
+调度流水线: 贪心分配(簇→AGV) → 簇间TSP排序 → 逐簇TSP排序
+关键设计: 保持簇边界执行, 不展平簇, 使分配代价估算与实际执行一致
+"""
 
 from __future__ import annotations
 from typing import TYPE_CHECKING
@@ -15,6 +19,7 @@ if TYPE_CHECKING:
 
 
 def _centroid(positions: list[tuple[int, int]]) -> tuple[int, int]:
+    """计算一组坐标的几何中心(四舍五入取整)"""
     if not positions:
         return (0, 0)
     x = sum(p[0] for p in positions) / len(positions)
@@ -31,7 +36,10 @@ class FleetManager:
         self.allocator = TaskAllocator(self.path_finder, self.tsp, config)
 
     def schedule(self, clusters: list[TaskCluster]) -> dict[int, list[TransportTask]]:
-        """调度入口：贪心分配 → 簇间TSP排序 → 逐簇TSP排序"""
+        """调度入口: 返回 {agv_id: [排序后的任务列表]}
+
+        流程: 贪心分配 → 簇间TSP排序(决定执行顺序) → 逐簇TSP排序(batch优化)
+        """
         # 1. 创建AGV状态
         agv_states = [
             AGVState(agv_id=i + 1, init_pos=pos, current_pos=pos)
@@ -86,7 +94,11 @@ class FleetManager:
     def _sort_clusters_tsp(self, clusters: list[TaskCluster],
                            agv_pos: tuple[int, int],
                            zone_pos: dict[str, tuple[int, int]]) -> list[TaskCluster]:
-        """OR-Tools TSP 排簇的执行顺序"""
+        """OR-Tools TSP 排簇的执行顺序
+
+        每个簇抽象为两个点: 入口(pick质心)和出口(dest质心),
+        构建距离矩阵后用TSP求解最优执行顺序。
+        """
         n = len(clusters)
 
         # 计算每个簇的入口（pick质心）和出口（dest质心）

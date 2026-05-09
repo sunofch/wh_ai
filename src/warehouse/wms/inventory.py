@@ -1,5 +1,10 @@
 # src/warehouse/wms/inventory.py
-"""库存管理"""
+"""库存管理
+
+按区域类型(mechanical/electrical/consumable/safety/tool)初始化备件库存。
+每个储位随机填充0-3件库存, 型号按序分配。
+支持按型号查询、扣减库存、入库补货。
+"""
 
 from __future__ import annotations
 from typing import TYPE_CHECKING

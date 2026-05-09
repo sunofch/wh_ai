@@ -1,5 +1,9 @@
 # src/warehouse/simulation/agv.py
-"""AGV状态机 + 轨迹记录"""
+"""AGV状态机 + 非均匀时间步轨迹记录
+
+轨迹数组以时间步为索引, 每个元素记录(x, y, state, task_id)。
+支持非均匀时间步: 转弯/加速期间AGV停留在原位, 填充中间时刻的轨迹。
+"""
 
 from __future__ import annotations
 from src.warehouse.models import AGVStatus, TransportTask

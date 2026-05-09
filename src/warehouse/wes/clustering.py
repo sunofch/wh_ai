@@ -1,5 +1,14 @@
 # src/warehouse/wes/clustering.py
-"""路线A聚类：按精确batch键分组 → 空间合并 → 容量拆分（保持batch组完整性）"""
+"""路线A聚类: 按精确batch键分组 → 空间合并 → 容量拆分
+
+聚类流程(4步):
+  1. 方向感知分离: OUTBOUND/TRANSFER和INBOUND分别处理
+  2. 精确batch键分组: OUTBOUND按dest, INBOUND按pick
+  3. 空间合并: Ward层次聚类合并位置相近的batch组(阈值25)
+  4. 容量拆分: 超过max_capacity时按batch组为单位贪心装箱, 保持batch完整性
+
+消融关闭时退化为按order_id分组。
+"""
 
 from __future__ import annotations
 from collections import defaultdict

@@ -1,5 +1,10 @@
 # src/warehouse/maps/base.py
-"""地图注册机制与基类"""
+"""地图注册机制与基类
+
+使用装饰器模式注册地图: @MapRegistry.register("name") 标记地图类,
+运行时通过 MapRegistry.get("name") 获取MapConfig实例。
+新增地图只需创建继承BaseMap的类并添加@register装饰器。
+"""
 
 from __future__ import annotations
 from abc import ABC, abstractmethod

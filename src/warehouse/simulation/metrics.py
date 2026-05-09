@@ -1,5 +1,9 @@
 # src/warehouse/simulation/metrics.py
-"""指标统计"""
+"""指标统计与对比表输出
+
+从AGV轨迹中计算: makespan(最大完成时间)、总移动距离、AGV利用率、任务数方差。
+compare()方法生成动态列宽的对比表, 适配不同长度的实验名和数值。
+"""
 
 from __future__ import annotations
 

@@ -1,5 +1,9 @@
 # src/warehouse/wms/config.py
-"""全局配置 — Pydantic Settings"""
+"""全局配置 — Pydantic Settings
+
+所有参数通过 WH_ 前缀的环境变量加载(如 WH_MAP_NAME, WH_AGV_MOVE_TIME)。
+消融开关 AblationFlags 控制M1/M2/M3三个优化模块的启停。
+"""
 
 from __future__ import annotations
 from pydantic_settings import BaseSettings, SettingsConfigDict

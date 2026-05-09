@@ -1,5 +1,10 @@
 # src/warehouse/fleet/map_builder.py
-"""仓库地图构建器 — 全双向通道"""
+"""仓库地图构建器
+
+从MapConfig构建网格地图, 注册所有储位/端口/充电桩的坐标映射(zone_pos)。
+货架布局: 每个区域含多行货架, 每行4组×3个储位, 行间有通道供AGV通行。
+端口支持多泊位(berths), AGV按ID取模分配泊位避免聚集。
+"""
 
 from __future__ import annotations
 import numpy as np
@@ -61,6 +66,7 @@ class WarehouseMap:
             self.rack_zone_names.append(zone_name)
 
     def _build_rack_zone(self, zone_name: str, zcfg: RackZoneConfig):
+        """构建单个货架区域: 每行4组×3个储位, 行间间隔1行通道"""
         sx, sy = zcfg.pos
         gw = self.config.grid_size
         gh = self.config.grid_height or gw

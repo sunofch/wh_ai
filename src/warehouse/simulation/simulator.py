@@ -1,5 +1,14 @@
 # src/warehouse/simulation/simulator.py
-"""仿真执行引擎（支持双向batch：OUTBOUND多取一送 + INBOUND一取多送）"""
+"""仿真执行引擎
+
+逐AGV串行执行任务列表, 每个任务前检查电量并自动充电。
+自动检测连续任务的batch模式:
+  - OUTBOUND batch: 连续同dest → [空载→取货]×N → 载货→送货 → [卸货]×N
+  - INBOUND batch:  连续同pick → 空载→取货 → [装载]×N → [载货→卸货]×N
+  - 单任务:         空载→取货→装载→载货→送货→卸货
+
+时空锁定: 每段路径和等待都锁定时空占用, 避免AGV碰撞。
+"""
 
 from __future__ import annotations
 from typing import TYPE_CHECKING

@@ -1,5 +1,10 @@
 # src/warehouse/wes/task_decomposer.py
-"""WorkOrder → TransportTask 分解"""
+"""WorkOrder → TransportTask 分解
+
+为每个OrderItem分配具体的pick/dest位置:
+  - INBOUND: pick=入库端口(随机选), dest=货架储位(选有空位的)
+  - OUTBOUND/TRANSFER: pick=货架储位(选有库存的), dest=出库端口(随机选)
+"""
 
 from __future__ import annotations
 import random

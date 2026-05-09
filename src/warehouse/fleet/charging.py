@@ -1,5 +1,9 @@
 # src/warehouse/fleet/charging.py
-"""充电感知调度"""
+"""充电感知调度
+
+策略: AGV电量低于阈值时, 前往最近的充电桩充电至满电。
+仿真引擎在每个任务执行前检查电量, 不足时自动插入充电行程。
+"""
 
 from __future__ import annotations
 from typing import TYPE_CHECKING
