@@ -99,7 +99,7 @@ class OrderClusterer:
             if len(all_tasks) <= max_capacity:
                 zone = self._get_zone_from_tasks(all_tasks, direction)
                 return [self._make_cluster(0, all_tasks, zone)]
-            return self._split_preserving_batches([batch_groups], max_capacity)
+            return self._split_preserving_batches(batch_groups, max_capacity)
 
         # Step 2: 计算每个 batch 组的中心位置
         centers = []

@@ -18,18 +18,18 @@ class ChargingScheduler:
         self.config = config
 
     def plan_charging(self, current_pos: tuple[int, int],
-                      current_t: int) -> tuple[list[tuple[int, int]], int, tuple[int, int]]:
-        """返回 (到充电桩的路径, 充电完成时间, 充电桩位置)"""
-        # 找最近的充电桩
+                      current_t: int, agv_id: int = -1,
+                      current_dir: str = "RIGHT"
+                      ) -> tuple[list[tuple[int, int]], list[int], tuple[int, int]]:
+        """返回 (到充电桩的路径, 路径时间步, 充电桩位置)"""
         nearest = min(
             self.wmap.charging_points,
             key=lambda p: self.path_finder.get_distance(current_pos, p),
         )
-        path, _, time_cost = self.path_finder.find_path(
-            current_pos, nearest, 0, 0, current_t, -1
+        path, _, _, path_times = self.path_finder.find_path(
+            current_pos, nearest, 0, current_dir, current_t, agv_id
         )
-        charge_end_t = current_t + time_cost + self.config.AGV_CHARGE_TIME
-        return path, charge_end_t, nearest
+        return path, path_times, nearest
 
     def estimate_battery_usage(self, path_length: int) -> int:
         return path_length * self.config.AGV_CONSUME_RATE

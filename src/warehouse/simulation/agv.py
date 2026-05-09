@@ -25,7 +25,21 @@ class AGV:
             t = start_t + i
             if t < len(self.trajectory):
                 self.trajectory[t] = (pos[0], pos[1], state, task_id)
-        return start_t + len(path)
+        return start_t + len(path) - 1
+
+    def record_path_timed(self, path: list[tuple[int, int]], path_times: list[int],
+                          state: str, task_id: int) -> int:
+        """记录带非均匀时间步的路径，转弯/加速期间AGV停留在原位"""
+        for i, pos in enumerate(path):
+            t = path_times[i]
+            if t < len(self.trajectory):
+                self.trajectory[t] = (pos[0], pos[1], state, task_id)
+            # 填充当前位置到下一位置之间的停留时间
+            if i + 1 < len(path_times):
+                for t_fill in range(path_times[i] + 1, path_times[i + 1]):
+                    if t_fill < len(self.trajectory):
+                        self.trajectory[t_fill] = (pos[0], pos[1], state, task_id)
+        return path_times[-1]
 
     def record_wait(self, pos: tuple[int, int], start_t: int,
                     duration: int, state: str, task_id: int) -> int:

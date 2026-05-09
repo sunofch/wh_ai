@@ -26,7 +26,8 @@ class OrderManager:
         self.inbound_ports = [name for name, cfg in map_config.ports.items() if cfg["type"] == "INBOUND"]
         self.outbound_ports = [name for name, cfg in map_config.ports.items() if cfg["type"] == "OUTBOUND"]
 
-    def from_random(self, count: int) -> list[WorkOrder]:
+    def from_random(self, count: int,
+                    min_items: int = 2, max_items: int = 6) -> list[WorkOrder]:
         """生成随机工单"""
         rng = random.Random(self.seed)
         np_rng = np.random.RandomState(self.seed)
@@ -34,7 +35,7 @@ class OrderManager:
         for i in range(count):
             is_urgent = rng.random() < 0.1
             priority = OrderPriority.URGENT if is_urgent else OrderPriority.NORMAL
-            n_items = rng.randint(2, 6)
+            n_items = rng.randint(min_items, max_items)
             items = []
             for j in range(n_items):
                 task_type = rng.choice(list(TaskType))

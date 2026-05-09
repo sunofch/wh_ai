@@ -39,7 +39,9 @@ class SpaceTimeTable:
 
     def lock_occupation(self, x: int, y: int, t_start: int, t_end: int, agv_id: int) -> None:
         for t in range(t_start, t_end + 1):
-            self.occupation[(x, y, t)] = agv_id
+            key = (x, y, t)
+            if key not in self.occupation or self.occupation[key] == agv_id:
+                self.occupation[key] = agv_id
 
 
 class PathFinder:
@@ -64,9 +66,10 @@ class PathFinder:
         return abs(a[0] - b[0]) + abs(a[1] - b[1])
 
     def _is_passable(self, cur: tuple[int, int], nxt: tuple[int, int]) -> bool:
-        gs = self.wmap.config.grid_size
+        gw = self.wmap.config.grid_size
+        gh = self.wmap.config.grid_height or gw
         nx, ny = nxt
-        if not (0 <= nx < gs and 0 <= ny < gs):
+        if not (0 <= nx < gw and 0 <= ny < gh):
             return False
         cell = self.grid[ny][nx]
         return cell != 0  # MAP_OBSTACLE
@@ -106,7 +109,7 @@ class PathFinder:
                     cur = came_from[cur]
                 path.append(start)
                 path.reverse()
-                dist = len(path)
+                dist = len(path) - 1 if len(path) > 1 else 0
                 self._cache_path(cache_key, path, dist)
                 return path, dist
 
@@ -129,14 +132,17 @@ class PathFinder:
         return path, dist
 
     def find_path(self, start: tuple, end: tuple, load_state: int,
-                  init_dir: int, current_step: int, agv_id: int) -> tuple[list[tuple[int, int]], int, int]:
-        """时空A*（带冲突检测）"""
+                  init_dir, current_step: int, agv_id: int):
+        """时空A*（带冲突检测），返回 (path, turns, total_time, path_times)"""
         start = (int(start[0]), int(start[1]))
         end = (int(end[0]), int(end[1]))
         if start == end:
-            return [start], 0, 0
+            return [start], 0, 0, [current_step]
 
-        init_dir_str = "RIGHT" if init_dir == DIR_X else "DOWN"
+        if isinstance(init_dir, str):
+            init_dir_str = init_dir
+        else:
+            init_dir_str = "RIGHT" if init_dir == DIR_X else "DOWN"
         c = self.config
 
         open_heap: list[tuple] = []
@@ -156,50 +162,86 @@ class PathFinder:
 
             if (x, y) == end:
                 path = []
+                path_times = []
                 cur = state_key
                 while cur in came_from:
                     path.append((cur[0], cur[1]))
+                    path_times.append(cur[3])
                     cur = came_from[cur]
                 path.append(start)
+                path_times.append(current_step)
                 path.reverse()
-                # 计算转弯次数和时间
-                dir_list = [init_dir_str]
-                for i in range(1, len(path)):
-                    dx = path[i][0] - path[i - 1][0]
-                    dir_list.append("RIGHT" if dx > 0 else "LEFT" if dx < 0 else dir_list[-1])
-                turns = sum(1 for i in range(1, len(dir_list)) if dir_list[i] != dir_list[i - 1])
-                base_time = len(path) * c.AGV_MOVE_TIME
-                accel_time = (c.AGV_ACCEL_TIME + c.AGV_DECEL_TIME) if len(path) > 1 else 0
-                turn_time = turns * c.AGV_TURN_TIME
-                return path, turns, base_time + accel_time + turn_time
+                path_times.reverse()
+                turns = 0
+                for j in range(2, len(path)):
+                    dx0 = path[j-1][0] - path[j-2][0]
+                    dy0 = path[j-1][1] - path[j-2][1]
+                    dx1 = path[j][0] - path[j-1][0]
+                    dy1 = path[j][1] - path[j-1][1]
+                    if (dx0, dy0) != (dx1, dy1):
+                        turns += 1
+                total_time = path_times[-1] - current_step
+                return path, turns, total_time, path_times
 
+            can_move = False
             for dx, dy, _, move_dir_str in DIRECTIONS:
                 nx, ny = x + dx, y + dy
                 nxt = (nx, ny)
-                next_t = cur_t + c.AGV_MOVE_TIME
 
                 if not self._is_passable((x, y), nxt):
                     continue
 
-                # 时空占用检查
-                is_free, _ = self.st_table.check_occupation(nx, ny, cur_t + 1, next_t, agv_id)
-                if not is_free:
-                    continue
-
                 turn_cost = c.AGV_TURN_TIME if move_dir_str != cur_dir else 0
                 accel_cost = c.AGV_ACCEL_TIME if cur_t == current_step else 0
-                new_g = cur_g + c.AGV_MOVE_TIME + turn_cost + accel_cost
+                step_cost = c.AGV_MOVE_TIME + turn_cost + accel_cost
+                next_t = cur_t + step_cost
+
+                # 检查下一位置在到达时刻是否空闲
+                is_free, _ = self.st_table.check_occupation(nx, ny, next_t, next_t, agv_id)
+                if not is_free:
+                    continue
+                # 检查转弯期间当前位置是否空闲
+                if turn_cost > 0:
+                    is_free_stay, _ = self.st_table.check_occupation(x, y, cur_t + 1, cur_t + turn_cost, agv_id)
+                    if not is_free_stay:
+                        continue
+
+                can_move = True
+                new_g = cur_g + step_cost
                 new_state = (nx, ny, move_dir_str, next_t)
                 if new_state not in g_score or new_g < g_score[new_state]:
                     came_from[new_state] = state_key
                     g_score[new_state] = new_g
                     heapq.heappush(open_heap, (new_g + self._heuristic(nxt, end), nx, ny, move_dir_str, next_t, new_g))
 
-        # fallback
+            # 所有方向被占时原地等待 1 步
+            if not can_move:
+                wait_t = cur_t + c.AGV_MOVE_TIME
+                wait_state = (x, y, cur_dir, wait_t)
+                if wait_state not in closed:
+                    wait_g = cur_g + c.AGV_MOVE_TIME
+                    if wait_state not in g_score or wait_g < g_score[wait_state]:
+                        came_from[wait_state] = state_key
+                        g_score[wait_state] = wait_g
+                        heapq.heappush(open_heap, (wait_g + self._heuristic((x, y), end), x, y, cur_dir, wait_t, wait_g))
+
+        # fallback — 从路径计算时间
         path, _ = self.find_base_path(start, end)
-        turns = 2 if (start[0] != end[0] and start[1] != end[1]) else 0
-        total_time = len(path) * c.AGV_MOVE_TIME + turns * c.AGV_TURN_TIME
-        return path, turns, total_time
+        dir_prev = init_dir_str
+        turns = 0
+        path_times = [current_step]
+        for i in range(1, len(path)):
+            dx = path[i][0] - path[i - 1][0]
+            dy = path[i][1] - path[i - 1][1]
+            d = "RIGHT" if dx > 0 else "LEFT" if dx < 0 else "DOWN" if dy > 0 else "UP"
+            tc = c.AGV_TURN_TIME if d != dir_prev else 0
+            ac = c.AGV_ACCEL_TIME if i == 1 else 0
+            path_times.append(path_times[-1] + c.AGV_MOVE_TIME + tc + ac)
+            if d != dir_prev:
+                turns += 1
+            dir_prev = d
+        total_time = path_times[-1] - current_step
+        return path, turns, total_time, path_times
 
     def precompute_all_paths(self) -> None:
         """预计算所有关键点之间的路径"""
@@ -225,3 +267,21 @@ class PathFinder:
             return self._dist_cache[cache_key]
         _, dist = self.find_base_path(start, end)
         return dist
+
+    def lock_path(self, path: list[tuple[int, int]], path_times: list[int],
+                  agv_id: int) -> None:
+        """锁定路径的时空占用，path_times 为每个位置的到达时刻"""
+        for i, (x, y) in enumerate(path):
+            t_start = path_times[i]
+            # 占用到下一位置到达前一刻（含转弯/加速停留）
+            t_end = path_times[i + 1] - 1 if i + 1 < len(path_times) else t_start
+            t_end = min(t_end, self.st_table.max_step - 1)
+            if t_start <= t_end:
+                self.st_table.lock_occupation(x, y, t_start, t_end, agv_id)
+
+    def lock_wait(self, pos: tuple[int, int], start_t: int, duration: int, agv_id: int) -> None:
+        """锁定等待期间（装卸/充电）的时空占用"""
+        x, y = pos
+        end_t = min(start_t + duration - 1, self.st_table.max_step - 1)
+        if start_t <= end_t:
+            self.st_table.lock_occupation(x, y, start_t, end_t, agv_id)

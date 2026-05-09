@@ -19,9 +19,9 @@ class WarehouseMap:
 
     def __init__(self, map_config: MapConfig):
         self.config = map_config
-        self.grid: np.ndarray = np.zeros(
-            (map_config.grid_size, map_config.grid_size), dtype=int
-        )
+        gw = map_config.grid_size
+        gh = map_config.grid_height or gw
+        self.grid: np.ndarray = np.zeros((gh, gw), dtype=int)
         self.zone_pos: dict[str, tuple[int, int]] = {}
         self.port_info: dict[str, dict] = {}
         self.storage_list: list[str] = []
@@ -31,10 +31,11 @@ class WarehouseMap:
 
     def _build(self):
         cfg = self.config
-        gs = cfg.grid_size
+        gw = cfg.grid_size
+        gh = cfg.grid_height or gw
 
         # 1. 初始化全通道
-        self.grid[1:gs - 1, 1:gs - 1] = MAP_PASSABLE
+        self.grid[1:gh - 1, 1:gw - 1] = MAP_PASSABLE
 
         # 2. 端口
         for port_name, pcfg in cfg.ports.items():
@@ -42,11 +43,14 @@ class WarehouseMap:
             self.grid[y1:y2, x1:x2] = MAP_PORT
             self.zone_pos[port_name] = pcfg["pos"]
             self.port_info[port_name] = pcfg
+            # 注册每个泊位到 zone_pos
+            for bi, bp in enumerate(pcfg.get("berths", [pcfg["pos"]])):
+                self.zone_pos[f"{port_name}_B{bi}"] = bp
 
         # 3. 充电桩
         for pos in cfg.charging_points:
             x, y = pos
-            if 0 <= x < gs and 0 <= y < gs:
+            if 0 <= x < gw and 0 <= y < gh:
                 self.grid[y, x] = MAP_CHARGING
                 self.zone_pos[f"Charge_{pos}"] = pos
                 self.charging_points.append(pos)
@@ -58,15 +62,12 @@ class WarehouseMap:
 
     def _build_rack_zone(self, zone_name: str, zcfg: RackZoneConfig):
         sx, sy = zcfg.pos
-        gs = self.config.grid_size
+        gw = self.config.grid_size
+        gh = self.config.grid_height or gw
 
-        # 货架行布局：每行3个储位 + 1格巷道，重复 num_bays 次
-        # ASCII: SSS.SSS.SSS.SSS → 3个S + 1个. = 4格一组，共4组 = 16格
-        group_width = 4   # 3个储位 + 1格巷道
-        num_groups = 4    # SSS.SSS.SSS.SSS = 4组
-
-        # 货架行布局：每2行一组（1行储位 + 1行横向通道）
-        row_pairs = min(zcfg.height // 2, 5)  # 最多5行储位
+        group_width = 4
+        num_groups = 4
+        row_pairs = min(zcfg.height // 2, 5)
 
         for row_idx in range(row_pairs):
             rack_y = sy + row_idx * 2
@@ -74,16 +75,25 @@ class WarehouseMap:
             for g in range(num_groups):
                 for s in range(3):
                     bay_x = sx + g * group_width + s
-                    if bay_x >= gs or rack_y >= gs:
+                    if bay_x >= gw or rack_y >= gh:
                         continue
                     sname = f"{zone_name}_R{row_idx + 1}_B{g * 3 + s + 1}"
                     self.zone_pos[sname] = (bay_x, rack_y)
                     self.storage_list.append(sname)
                     self.grid[rack_y, bay_x] = MAP_STORAGE
 
+    def get_port_berth(self, port_name: str, agv_id: int) -> tuple[int, int]:
+        """根据 AGV ID 返回端口内的泊位位置（3个泊位轮询）"""
+        pcfg = self.port_info.get(port_name)
+        if pcfg is None:
+            return self.zone_pos.get(port_name, (0, 0))
+        berths = pcfg.get("berths", [pcfg["pos"]])
+        return berths[(agv_id - 1) % len(berths)]
+
     def is_passable(self, x: int, y: int) -> bool:
-        gs = self.config.grid_size
-        if not (0 <= x < gs and 0 <= y < gs):
+        gw = self.config.grid_size
+        gh = self.config.grid_height or gw
+        if not (0 <= x < gw and 0 <= y < gh):
             return False
         cell = self.grid[y, x]
         return cell != MAP_OBSTACLE

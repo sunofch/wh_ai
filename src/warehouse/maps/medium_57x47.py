@@ -18,6 +18,7 @@ class Medium57x47(BaseMap):
             name="medium_57x47",
             display_name="港口备件仓库 (57×47 全双向)",
             grid_size=57,
+            grid_height=47,
             description="行列式货架仓，9区域，6端口，全双向通道",
             rack_zones={
                 # 上排 (Y: 7-15, 5行货架)
@@ -62,13 +63,19 @@ class Medium57x47(BaseMap):
             },
             ports={
                 # 入库端口 (顶部, 行2-3)
-                "IN-L": {"pos": (10, 2), "area": (3, 18, 2, 4), "type": "INBOUND"},
-                "IN-C": {"pos": (28, 2), "area": (21, 36, 2, 4), "type": "INBOUND"},
-                "IN-R": {"pos": (46, 2), "area": (39, 54, 2, 4), "type": "INBOUND"},
+                "IN-L": {"pos": (10, 3), "area": (3, 18, 2, 4), "type": "INBOUND",
+                         "berths": [(6, 3), (10, 3), (14, 3)]},
+                "IN-C": {"pos": (28, 3), "area": (21, 36, 2, 4), "type": "INBOUND",
+                         "berths": [(24, 3), (28, 3), (32, 3)]},
+                "IN-R": {"pos": (46, 3), "area": (39, 54, 2, 4), "type": "INBOUND",
+                         "berths": [(42, 3), (46, 3), (50, 3)]},
                 # 出库端口 (底部, 行43-44)
-                "OUT-L": {"pos": (10, 44), "area": (3, 18, 43, 45), "type": "OUTBOUND"},
-                "OUT-C": {"pos": (28, 44), "area": (21, 36, 43, 45), "type": "OUTBOUND"},
-                "OUT-R": {"pos": (46, 44), "area": (39, 54, 43, 45), "type": "OUTBOUND"},
+                "OUT-L": {"pos": (10, 44), "area": (3, 18, 43, 45), "type": "OUTBOUND",
+                          "berths": [(6, 44), (10, 44), (14, 44)]},
+                "OUT-C": {"pos": (28, 44), "area": (21, 36, 43, 45), "type": "OUTBOUND",
+                          "berths": [(24, 44), (28, 44), (32, 44)]},
+                "OUT-R": {"pos": (46, 44), "area": (39, 54, 43, 45), "type": "OUTBOUND",
+                          "berths": [(42, 44), (46, 44), (50, 44)]},
             },
             agv_init_positions=[
                 (10, 5), (28, 5), (46, 5),

@@ -25,7 +25,7 @@ class MetricsCollector:
             max_t = min(len(agv.trajectory), makespan)
             for t in range(max_t):
                 x, y, state, task_id = agv.trajectory[t]
-                if prev is not None and state in ("moving_empty", "moving_loaded"):
+                if prev is not None and (x, y) != prev:
                     total_distance += abs(x - prev[0]) + abs(y - prev[1])
                 if state in ("moving_empty", "moving_loaded", "loading", "unloading"):
                     active += 1

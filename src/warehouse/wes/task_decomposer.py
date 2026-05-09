@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 import random
+from typing import Optional
 
 from src.warehouse.models import (
     WorkOrder, OrderItem, TransportTask, TaskType, OrderPriority,
@@ -11,7 +12,7 @@ from src.warehouse.wms.inventory import InventoryManager
 
 
 class TaskDecomposer:
-    def __init__(self, inventory: InventoryManager, inbound_ports: list[str],
+    def __init__(self, inventory: InventoryManager | None, inbound_ports: list[str],
                  outbound_ports: list[str], seed: int = 42):
         self.inventory = inventory
         self.inbound_ports = inbound_ports

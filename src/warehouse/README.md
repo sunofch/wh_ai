@@ -67,6 +67,7 @@ python main_simulation.py medium_57x47 40
 
 # 消融实验（4级对比）
 python main_simulation.py --ablation
+python main_simulation.py --ablation medium_57x47 40
 
 # 运行测试
 python -m pytest tests/warehouse/ -v
