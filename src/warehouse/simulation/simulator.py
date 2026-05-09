@@ -24,8 +24,7 @@ class Simulator:
         self.config = config
         self.charging = ChargingScheduler(fleet.path_finder, warehouse_map, config)
 
-    def run(self, agv_tasks: dict[int, list[TransportTask]],
-            estimated_makespan: int) -> SimulationResult:
+    def run(self, agv_tasks: dict[int, list[TransportTask]]) -> SimulationResult:
         """执行仿真：遍历每个AGV的任务列表，生成轨迹"""
         import time as _time
         start = _time.time()
@@ -250,7 +249,7 @@ class Simulator:
             i = batch_end
 
         # idle只记录轨迹，不长期锁定位置（避免阻碍其他AGV规划）
-        agv.record_wait(current_pos, current_t, 1, "idle", -1)
+        current_t = agv.record_wait(current_pos, current_t, 1, "idle", -1)
         agv.current_pos = current_pos
         agv.total_time = current_t
         return current_t

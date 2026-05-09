@@ -15,8 +15,6 @@ class MetricsCollector:
     def collect(agvs: list[AGV], makespan: int, planning_time: float,
                 st_table: SpaceTimeTable) -> SimulationResult:
         total_distance = 0
-        yield_count = 0
-        yield_time = 0
         total_active = 0
 
         for agv in agvs:
@@ -29,9 +27,6 @@ class MetricsCollector:
                     total_distance += abs(x - prev[0]) + abs(y - prev[1])
                 if state in ("moving_empty", "moving_loaded", "loading", "unloading"):
                     active += 1
-                if state == "yielding":
-                    yield_count += 1
-                    yield_time += 1
                 prev = (x, y)
             total_active += active
 
@@ -52,8 +47,6 @@ class MetricsCollector:
         return SimulationResult(
             makespan=makespan,
             total_distance=total_distance,
-            yield_count=yield_count,
-            yield_time=yield_time,
             planning_time=planning_time,
             path_calc_count=st_table.path_calc_count,
             task_variance=variance,
@@ -72,17 +65,38 @@ class MetricsCollector:
 
     @staticmethod
     def compare(results: dict[str, SimulationResult]) -> str:
-        lines = []
-        header = f"{'实验':<35}"
-        for name in ["makespan", "total_distance", "agv_utilization", "planning_time"]:
-            header += f"{name:<18}"
-        lines.append(header)
-        lines.append("-" * 120)
-        for exp_name, r in results.items():
-            line = f"{exp_name:<35}"
-            line += f"{r.makespan:<18}"
-            line += f"{r.total_distance:<18}"
-            line += f"{r.agv_utilization:<18.2%}"
-            line += f"{r.planning_time:<18.2f}"
-            lines.append(line)
+        items = list(results.items())
+        if not items:
+            return ""
+
+        w_name = max(max(len(n) for n in results.keys()), 4)
+        w_ms = max(len(str(r.makespan)) for _, r in items)
+        w_dist = max(len(str(r.total_distance)) for _, r in items)
+        w_util = max(len(f"{r.agv_utilization:.2%}") for _, r in items)
+        w_time = max(len(f"{r.planning_time:.2f}s") for _, r in items)
+
+        hdr_ms = max(w_ms, len("makespan"))
+        hdr_dist = max(w_dist, len("total_distance"))
+        hdr_util = max(w_util, len("agv_utilization"))
+        hdr_time = max(w_time, len("planning_time"))
+
+        c_ms = max(hdr_ms, w_ms)
+        c_dist = max(hdr_dist, w_dist)
+        c_util = max(hdr_util, w_util)
+        c_time = max(hdr_time, w_time)
+
+        sep_len = 2 + w_name + 3 + c_ms + 3 + c_dist + 3 + c_util + 3 + c_time
+        sep = "═" * sep_len
+
+        lines = [""]
+        lines.append(f"  {sep}")
+        lines.append(f"  {'实验':<{w_name}}   {'makespan':>{c_ms}}   {'total_distance':>{c_dist}}   {'agv_utilization':>{c_util}}   {'planning_time':>{c_time}}")
+        lines.append(f"  {'─' * sep_len}")
+        for name, r in items:
+            util_s = f"{r.agv_utilization:.2%}"
+            time_s = f"{r.planning_time:.2f}s"
+            lines.append(
+                f"  {name:<{w_name}}   {r.makespan:>{c_ms}}   {r.total_distance:>{c_dist}}   {util_s:>{c_util}}   {time_s:>{c_time}}"
+            )
+        lines.append(f"  {sep}")
         return "\n".join(lines)

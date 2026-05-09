@@ -30,7 +30,7 @@ class FleetManager:
         self.tsp = TSPSolver(self.path_finder, config)
         self.allocator = TaskAllocator(self.path_finder, self.tsp, config)
 
-    def schedule(self, clusters: list[TaskCluster]) -> tuple[dict[int, list[TransportTask]], int]:
+    def schedule(self, clusters: list[TaskCluster]) -> dict[int, list[TransportTask]]:
         """调度入口：贪心分配 → 簇间TSP排序 → 逐簇TSP排序"""
         # 1. 创建AGV状态
         agv_states = [
@@ -39,7 +39,7 @@ class FleetManager:
         ]
 
         # 2. 贪心分配
-        allocation, makespan = self.allocator.allocate(
+        allocation = self.allocator.allocate(
             clusters, agv_states, self.wmap.zone_pos
         )
 
@@ -81,7 +81,7 @@ class FleetManager:
                     all_tasks.extend(cluster.tasks)
                 agv_tasks[agv.agv_id] = sorted(all_tasks, key=lambda t: -t.priority)
 
-        return agv_tasks, makespan
+        return agv_tasks
 
     def _sort_clusters_tsp(self, clusters: list[TaskCluster],
                            agv_pos: tuple[int, int],

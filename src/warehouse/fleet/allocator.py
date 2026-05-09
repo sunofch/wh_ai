@@ -25,20 +25,18 @@ class TaskAllocator:
         c = self.config
         n_tasks = len(sorted_tasks)
 
-        base_time = total_dist * c.AGV_MOVE_TIME
+        move_time = total_dist * c.AGV_MOVE_TIME
         load_time = n_tasks * 2 * c.AGV_LOAD_UNLOAD_TIME
-        turn_est = max(0, n_tasks) * c.AGV_TURN_TIME
-        accel_est = c.AGV_ACCEL_TIME * max(1, n_tasks)
 
         exit_pos = zone_pos.get(sorted_tasks[-1].dest, agv_pos) if sorted_tasks else agv_pos
-        return base_time + load_time + turn_est + accel_est, exit_pos
+        return move_time + load_time, exit_pos
 
     def allocate(self, clusters: list[TaskCluster], agv_states: list[AGVState],
-                 zone_pos: dict[str, tuple[int, int]]) -> tuple[dict[int, list[TaskCluster]], int]:
+                 zone_pos: dict[str, tuple[int, int]]) -> dict[int, list[TaskCluster]]:
         return self._greedy_allocate(clusters, agv_states, zone_pos)
 
     def _greedy_allocate(self, clusters: list[TaskCluster], agv_states: list[AGVState],
-                         zone_pos: dict[str, tuple[int, int]]) -> tuple[dict[int, list[TaskCluster]], int]:
+                         zone_pos: dict[str, tuple[int, int]]) -> dict[int, list[TaskCluster]]:
         """位置感知贪心：跟踪AGV出口位置，argmin(总分)选最优AGV"""
         result: dict[int, list[TaskCluster]] = defaultdict(list)
         agv_positions = {s.agv_id: s.init_pos for s in agv_states}
@@ -63,4 +61,4 @@ class TaskAllocator:
             agv_times[best_agv] += best_time
             agv_positions[best_agv] = best_exit
 
-        return result, int(max(agv_times.values()))
+        return result

@@ -244,20 +244,16 @@ class TSPSolver:
     def optimize(self, tasks: list[TransportTask],
                  agv_pos: tuple[int, int],
                  zone_pos: dict[str, tuple[int, int]]) -> tuple[list[TransportTask], int]:
-        """返回 (排序后的任务列表, 总距离) — 支持双向 batch
+        """返回 (排序后的任务列表, 总距离) — batch 常驻
 
         OUTBOUND/TRANSFER: 按 dest 分组 → 多取一送（[取→取→取]→送）
         INBOUND:           按 pick 分组 → 一取多送（取→[送→送→送]）
+        TSP 开启时 batch 间用 OR-Tools 排序，关闭时按优先级排序
         """
         if not tasks:
             return [], 0
-        if len(tasks) == 1 or not self.config.ablation.enable_tsp:
-            sorted_tasks = sorted(tasks, key=lambda t: -t.priority)
-            return sorted_tasks, self._chain_distance(sorted_tasks, agv_pos, zone_pos)
-
-        # TSP开启但Batch关闭 → 标准取一送一TSP
-        if not self.config.ablation.enable_batch:
-            return self._optimize_no_batch(tasks, agv_pos, zone_pos)
+        if len(tasks) == 1:
+            return list(tasks), self._chain_distance(tasks, agv_pos, zone_pos)
 
         from src.warehouse.models import TaskType
 
@@ -277,17 +273,24 @@ class TSPSolver:
             all_batches.append(b)
             batch_types.append(_INBOUND)
 
-        # 无 batch 机会 → 退化原始 TSP
+        # 无 batch 机会 → TSP 开则用 OR-Tools，关则按优先级
         if all(len(b) == 1 for b in all_batches):
-            return self._optimize_no_batch(tasks, agv_pos, zone_pos)
+            if self.config.ablation.enable_tsp:
+                return self._optimize_no_batch(tasks, agv_pos, zone_pos)
+            sorted_tasks = sorted(tasks, key=lambda t: -t.priority)
+            return sorted_tasks, self._chain_distance(sorted_tasks, agv_pos, zone_pos)
 
-        # Step 3: batch 间 TSP 排序
-        if len(all_batches) > 1:
+        # Step 3: batch 间排序
+        if self.config.ablation.enable_tsp and len(all_batches) > 1:
             batch_matrix = self._build_batch_distance_matrix(
                 all_batches, batch_types, agv_pos, zone_pos)
             batch_order = self._solve_tsp(batch_matrix, len(all_batches))
         else:
-            batch_order = [0]
+            # TSP 关闭：按优先级降序排列 batch
+            batch_order = sorted(
+                range(len(all_batches)),
+                key=lambda i: -max(t.priority for t in all_batches[i]),
+            )
 
         # Step 4: 逐 batch 精确排序 + 计算距离
         total_dist = 0

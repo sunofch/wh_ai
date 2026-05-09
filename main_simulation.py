@@ -91,40 +91,35 @@ def run_single(config: WarehouseConfig, map_name: str, order_num: int):
     td = TaskDecomposer(inv, om.inbound_ports, om.outbound_ports, seed=config.RANDOM_SEED)
     tasks = td.decompose(orders, wmap.storage_list)
 
+    _plan_start = time.time()
     clusterer = OrderClusterer(fleet.path_finder, config)
     clusters = clusterer.cluster(tasks, config.AGV_MAX_TASK_CAPACITY, wmap.zone_pos)
-
-    agv_tasks, estimated_makespan = fleet.schedule(clusters)
+    agv_tasks = fleet.schedule(clusters)
+    planning_time = time.time() - _plan_start
 
     sim = Simulator(wmap, fleet, config)
-    result = sim.run(agv_tasks, estimated_makespan)
-    return result, wmap, sim, estimated_makespan
+    result = sim.run(agv_tasks)
+    result.planning_time = planning_time
+    return result, wmap, sim
 
 
 def run_ablation(config: WarehouseConfig, map_name: str, order_num: int):
-    """消融实验"""
+    """消融实验 — batch常驻，逐步叠加M1/M2/M3"""
     ablation_groups = [
-        {"name": "Baseline (无优化)", "flags": AblationFlags(enable_path_cache=False, enable_clustering=False, enable_tsp=False, enable_batch=False)},
-        {"name": "M1 (路径缓存)", "flags": AblationFlags(enable_clustering=False, enable_tsp=False, enable_batch=False)},
-        {"name": "M1+M2 (+聚类)", "flags": AblationFlags(enable_tsp=False, enable_batch=False)},
-        {"name": "M1+M2+M3 (+TSP)", "flags": AblationFlags(enable_batch=False)},
-        {"name": "M1+M2+M3+M4 (+Batch)", "flags": AblationFlags()},
+        {"name": "Baseline (Batch)", "flags": AblationFlags(enable_path_cache=False, enable_clustering=False, enable_tsp=False)},
+        {"name": "M1 (+路径缓存)", "flags": AblationFlags(enable_clustering=False, enable_tsp=False)},
+        {"name": "M1+M2 (+聚类)", "flags": AblationFlags(enable_tsp=False)},
+        {"name": "M1+M2+M3 (+TSP)", "flags": AblationFlags()},
     ]
 
     results = {}
     for group in ablation_groups:
-        print(f"\n{'='*60}")
-        print(f"  运行: {group['name']}")
-        print(f"{'='*60}")
+        print(f"\n  ▶ {group['name']} ...", end=" ", flush=True)
         cfg = WarehouseConfig(ablation=group["flags"], ORDER_NUM=order_num, RANDOM_SEED=config.RANDOM_SEED)
-        result, _, _, est_ms = run_single(cfg, map_name, order_num)
+        result, _, _ = run_single(cfg, map_name, order_num)
         results[group["name"]] = result
-        print(f"  估计makespan: {est_ms} | 实际makespan: {result.makespan} | 距离: {result.total_distance} | 利用率: {result.agv_utilization:.2%} | 耗时: {result.planning_time:.2f}s")
+        print(f"makespan={result.makespan}  dist={result.total_distance}  util={result.agv_utilization:.1%}  time={result.planning_time:.2f}s")
 
-    print(f"\n{'='*100}")
-    print("消融实验结果对比")
-    print(MetricsCollector.compare(results))
-    print(f"{'='*100}")
     return results
 
 
@@ -149,7 +144,7 @@ if __name__ == "__main__":
         np.random.seed(config.RANDOM_SEED)
         random.seed(config.RANDOM_SEED)
 
-        result, wmap, sim, _ = run_single(config, map_name, order_num)
+        result, wmap, sim = run_single(config, map_name, order_num)
 
         print(f"\n  Makespan: {result.makespan}")
         print(f"  总距离: {result.total_distance}")

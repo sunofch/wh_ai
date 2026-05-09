@@ -38,7 +38,7 @@ class WarehouseConfig(BaseSettings):
     A_MAX_SEARCH: int = 50000
 
     # 随机种子
-    RANDOM_SEED: int = 42
+    RANDOM_SEED: int = 100
 
     # 消融开关
     ablation: AblationFlags = AblationFlags()

@@ -15,7 +15,6 @@ class AGVStatus(str, Enum):
     LOADING = "loading"
     UNLOADING = "unloading"
     CHARGING = "charging"
-    YIELDING = "yielding"
     MOVING_TO_CHARGE = "moving_to_charge"
 
 
@@ -106,8 +105,6 @@ class TrajectoryStep(BaseModel):
 class SimulationResult(BaseModel):
     makespan: int = 0
     total_distance: int = 0
-    yield_count: int = 0
-    yield_time: int = 0
     planning_time: float = 0.0
     path_calc_count: int = 0
     task_variance: float = 0.0
@@ -121,7 +118,6 @@ class AblationFlags(BaseModel):
     enable_path_cache: bool = True       # M1: PathFinder缓存
     enable_clustering: bool = True       # M2: 方向感知空间聚类
     enable_tsp: bool = True              # M3: OR-Tools TSP排序
-    enable_batch: bool = True            # M4: 双向Batch（多取一送/一取多送）
 
 
 # ── 货架区域配置 ──
