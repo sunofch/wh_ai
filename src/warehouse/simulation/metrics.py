@@ -48,6 +48,17 @@ class MetricsCollector:
                 if t < makespan
             ]
 
+        conflict_count = 0
+        for t in range(makespan):
+            positions: dict[tuple[int, int], list[int]] = {}
+            for agv in agvs:
+                if t < len(agv.trajectory):
+                    x, y, _, _ = agv.trajectory[t]
+                    positions.setdefault((x, y), []).append(agv.agv_id)
+            for ids in positions.values():
+                if len(ids) > 1:
+                    conflict_count += 1
+
         return SimulationResult(
             makespan=makespan,
             total_distance=total_distance,
@@ -55,6 +66,7 @@ class MetricsCollector:
             path_calc_count=st_table.path_calc_count,
             task_variance=variance,
             agv_utilization=utilization,
+            conflict_count=conflict_count,
             agv_trajectories=trajectories,
         )
 

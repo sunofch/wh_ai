@@ -128,6 +128,7 @@ class SimulationResult(BaseModel):
     path_calc_count: int = 0        # A*路径计算次数
     task_variance: float = 0.0      # AGV间任务数方差
     agv_utilization: float = 0.0    # AGV平均利用率
+    conflict_count: int = 0         # 时空冲突次数（两台AGV同格同时刻）
     agv_trajectories: dict[int, list[TrajectoryStep]] = {}
 
 
