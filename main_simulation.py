@@ -23,7 +23,6 @@ AGV 智能仓储调度系统 v2.0 — 仿真测试入口
     - M1 (路径缓存): 仅启用路径缓存
     - M1+M2 (+聚类): 路径缓存 + 方向感知聚类
     - M1+M2+M3 (+TSP): + 双向 Batch TSP
-    - M1+M2+M3+M4 (+CP-SAT): + CP-SAT 全局分配
 ====================================
 运行示例
 ====================================
@@ -48,7 +47,6 @@ python main_simulation.py --ablation medium_57x47 20
 - 双向 Batch: OUTBOUND 多取一送 + INBOUND 一取多送
 - 方向感知聚类: 按 dest/pick 区域智能分组
 - 时空 A* 寻路: 避免多 AGV 冲突
-- CP-SAT 分配: 全局优化 makespan
 - OR-Tools TSP: 任务序列优化
 ====================================
 """
@@ -62,6 +60,7 @@ from src.warehouse.maps.base import MapRegistry
 from src.warehouse.fleet.map_builder import WarehouseMap
 from src.warehouse.fleet.fleet_manager import FleetManager
 from src.warehouse.wms.config import WarehouseConfig
+from src.warehouse.wms.inventory import InventoryManager
 from src.warehouse.wms.order_manager import OrderManager
 from src.warehouse.wes.task_decomposer import TaskDecomposer
 from src.warehouse.wes.clustering import OrderClusterer
@@ -82,9 +81,14 @@ def run_single(config: WarehouseConfig, map_name: str, order_num: int):
     fleet.precompute()
 
     om = OrderManager(map_config, seed=config.RANDOM_SEED)
-    orders = om.from_random(order_num)
+    orders = om.from_random(
+        order_num,
+        min_items=config.MIN_SUBTASK_PER_ORDER,
+        max_items=config.MAX_SUBTASK_PER_ORDER,
+    )
 
-    td = TaskDecomposer(None, om.inbound_ports, om.outbound_ports, seed=config.RANDOM_SEED)
+    inv = InventoryManager(map_config, seed=config.RANDOM_SEED)
+    td = TaskDecomposer(inv, om.inbound_ports, om.outbound_ports, seed=config.RANDOM_SEED)
     tasks = td.decompose(orders, wmap.storage_list)
 
     clusterer = OrderClusterer(fleet.path_finder, config)
@@ -100,11 +104,11 @@ def run_single(config: WarehouseConfig, map_name: str, order_num: int):
 def run_ablation(config: WarehouseConfig, map_name: str, order_num: int):
     """消融实验"""
     ablation_groups = [
-        {"name": "Baseline (无优化)", "flags": AblationFlags(enable_path_cache=False, enable_clustering=False, enable_tsp=False, enable_cp_sat=False)},
-        {"name": "M1 (路径缓存)", "flags": AblationFlags(enable_clustering=False, enable_tsp=False, enable_cp_sat=False)},
-        {"name": "M1+M2 (+聚类)", "flags": AblationFlags(enable_tsp=False, enable_cp_sat=False)},
-        {"name": "M1+M2+M3 (+TSP)", "flags": AblationFlags(enable_cp_sat=False)},
-        {"name": "M1+M2+M3+M4 (+CP-SAT)", "flags": AblationFlags()},
+        {"name": "Baseline (无优化)", "flags": AblationFlags(enable_path_cache=False, enable_clustering=False, enable_tsp=False, enable_batch=False)},
+        {"name": "M1 (路径缓存)", "flags": AblationFlags(enable_clustering=False, enable_tsp=False, enable_batch=False)},
+        {"name": "M1+M2 (+聚类)", "flags": AblationFlags(enable_tsp=False, enable_batch=False)},
+        {"name": "M1+M2+M3 (+TSP)", "flags": AblationFlags(enable_batch=False)},
+        {"name": "M1+M2+M3+M4 (+Batch)", "flags": AblationFlags()},
     ]
 
     results = {}

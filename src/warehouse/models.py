@@ -119,9 +119,9 @@ class SimulationResult(BaseModel):
 
 class AblationFlags(BaseModel):
     enable_path_cache: bool = True       # M1: PathFinder缓存
-    enable_clustering: bool = True       # M2: OrderClusterer
-    enable_tsp: bool = True              # M3: TSPSolver
-    enable_cp_sat: bool = True           # M4: CP-SAT全局分配
+    enable_clustering: bool = True       # M2: 方向感知空间聚类
+    enable_tsp: bool = True              # M3: OR-Tools TSP排序
+    enable_batch: bool = True            # M4: 双向Batch（多取一送/一取多送）
 
 
 # ── 货架区域配置 ──
@@ -141,7 +141,8 @@ class RackZoneConfig(BaseModel):
 class MapConfig(BaseModel):
     name: str
     display_name: str
-    grid_size: int
+    grid_size: int              # grid width (x dimension)
+    grid_height: int = 0        # grid height (y dimension), 0 means use grid_size
     description: str = ""
     rack_zones: dict[str, RackZoneConfig] = {}
     ports: dict[str, dict] = {}

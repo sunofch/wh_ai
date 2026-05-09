@@ -17,7 +17,7 @@ class WarehouseConfig(BaseSettings):
     AGV_ACCEL_TIME: int = 2
     AGV_DECEL_TIME: int = 2
     AGV_TURN_TIME: int = 3
-    AGV_LOAD_UNLOAD_TIME: int = 8
+    AGV_LOAD_UNLOAD_TIME: int = 2
 
     # AGV电量参数
     AGV_MAX_BATTERY: int = 100
@@ -35,8 +35,7 @@ class WarehouseConfig(BaseSettings):
 
     # 求解器参数
     TSP_TIME_LIMIT: int = 1
-    CP_SAT_TIME_LIMIT: int = 30
-    A_MAX_SEARCH: int = 5000
+    A_MAX_SEARCH: int = 50000
 
     # 随机种子
     RANDOM_SEED: int = 42

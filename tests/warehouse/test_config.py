@@ -17,7 +17,7 @@ def test_ablation_flags():
     assert flags.enable_path_cache is True
     assert flags.enable_clustering is True
     assert flags.enable_tsp is True
-    assert flags.enable_cp_sat is True
+    assert flags.enable_batch is True
 
 
 def test_ablation_flags_custom():

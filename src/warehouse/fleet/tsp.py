@@ -255,6 +255,10 @@ class TSPSolver:
             sorted_tasks = sorted(tasks, key=lambda t: -t.priority)
             return sorted_tasks, self._chain_distance(sorted_tasks, agv_pos, zone_pos)
 
+        # TSP开启但Batch关闭 → 标准取一送一TSP
+        if not self.config.ablation.enable_batch:
+            return self._optimize_no_batch(tasks, agv_pos, zone_pos)
+
         from src.warehouse.models import TaskType
 
         # Step 1: 按方向分离任务

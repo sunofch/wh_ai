@@ -31,14 +31,14 @@ class FleetManager:
         self.allocator = TaskAllocator(self.path_finder, self.tsp, config)
 
     def schedule(self, clusters: list[TaskCluster]) -> tuple[dict[int, list[TransportTask]], int]:
-        """调度入口：CP-SAT分配 → 簇间TSP排序 → 逐簇TSP排序"""
+        """调度入口：贪心分配 → 簇间TSP排序 → 逐簇TSP排序"""
         # 1. 创建AGV状态
         agv_states = [
             AGVState(agv_id=i + 1, init_pos=pos, current_pos=pos)
             for i, pos in enumerate(self.wmap.config.agv_init_positions)
         ]
 
-        # 2. CP-SAT分配
+        # 2. 贪心分配
         allocation, makespan = self.allocator.allocate(
             clusters, agv_states, self.wmap.zone_pos
         )
