@@ -74,22 +74,18 @@ def _draw_agv_badge(ax, x, y, idx, scale=1.0):
     )
 
 
-def draw_warehouse_map(wh_map: WarehouseMap, output: str, fmt: str = "png"):
-    """绘制仓库建筑平面图"""
+def draw_map_background(ax, wh_map: WarehouseMap):
+    """绘制仓库地图背景（网格、货架区框、端口、充电站）
+
+    可被静态地图和动画复用，只绘制静态元素，不包含AGV标记和图例。
+    """
     cfg = wh_map.config
     gw, gh = cfg.grid_size, cfg.grid_height or cfg.grid_size
 
-    # 地图 + 图例
-    fig = plt.figure(figsize=(20, 14))
-    gs = gridspec.GridSpec(1, 2, width_ratios=[5, 1], wspace=0.02)
-    ax_map = fig.add_subplot(gs[0])
-    ax_legend = fig.add_subplot(gs[1])
-
-    # ── 地图区域 ──
-    ax_map.set_xlim(-1, gw)
-    ax_map.set_ylim(gh, -1)
-    ax_map.set_aspect("equal")
-    ax_map.axis("off")
+    ax.set_xlim(-1, gw)
+    ax.set_ylim(gh, -1)
+    ax.set_aspect("equal")
+    ax.axis("off")
 
     # 1. 绘制网格
     for y in range(gh):
@@ -105,17 +101,16 @@ def draw_warehouse_map(wh_map: WarehouseMap, output: str, fmt: str = "png"):
                 color = COLORS["charging"]
             else:
                 continue
-            ax_map.add_patch(mpatches.Rectangle(
+            ax.add_patch(mpatches.Rectangle(
                 (x - 0.5, y - 0.5), 1, 1,
                 facecolor=color, edgecolor="none",
             ))
 
-    # 2. 货架区域框 + 中心名称（虚线框包围实际货架格子，上下对称）
+    # 2. 货架区域框
     for zone_name, zcfg in cfg.rack_zones.items():
         sx, sy = zcfg.pos
         w, h = zcfg.width, zcfg.height
 
-        # 计算实际货架格子范围（每2行一组，最多5组）
         row_pairs = min(h // 2, 5)
         content_top = sy - 0.5
         content_bottom = sy + (row_pairs - 1) * 2 + 0.5
@@ -128,29 +123,41 @@ def draw_warehouse_map(wh_map: WarehouseMap, output: str, fmt: str = "png"):
         box_y = content_top - pad
         box_w = content_w + 2 * pad
         box_h = content_h + 2 * pad
-        cx = box_x + box_w / 2
-        cy = box_y + box_h / 2
 
-        # 虚线外框
-        ax_map.add_patch(FancyBboxPatch(
+        ax.add_patch(FancyBboxPatch(
             (box_x, box_y), box_w, box_h,
             boxstyle="round,pad=0.2",
             facecolor="none", edgecolor=zcfg.color,
             linewidth=1.2, linestyle="--", alpha=0.6,
         ))
 
-    # 3. 端口 — 泊位点
+    # 3. 端口泊位点
     for port_name, pcfg in cfg.ports.items():
         for bx, by in pcfg.get("berths", []):
-            ax_map.plot(bx, by, "s", color=COLORS["berth"], markersize=3, zorder=5)
+            ax.plot(bx, by, "s", color=COLORS["berth"], markersize=3, zorder=5)
 
-    # 4. 充电站 — 仅图标，无文字
+    # 4. 充电站
     for cx, cy in cfg.charging_points:
-        ax_map.plot(cx, cy, marker="D", markersize=8,
-                    color="#F57F17", markeredgecolor="white",
-                    markeredgewidth=1, zorder=6)
+        ax.plot(cx, cy, marker="D", markersize=8,
+                color="#F57F17", markeredgecolor="white",
+                markeredgewidth=1, zorder=6)
 
-    # 5. AGV 初始位置 — 圆角徽章
+
+def draw_warehouse_map(wh_map: WarehouseMap, output: str, fmt: str = "png"):
+    """绘制仓库建筑平面图"""
+    cfg = wh_map.config
+    gw, gh = cfg.grid_size, cfg.grid_height or cfg.grid_size
+
+    # 地图 + 图例
+    fig = plt.figure(figsize=(20, 14))
+    gs = gridspec.GridSpec(1, 2, width_ratios=[5, 1], wspace=0.02)
+    ax_map = fig.add_subplot(gs[0])
+    ax_legend = fig.add_subplot(gs[1])
+
+    # 绘制地图背景
+    draw_map_background(ax_map, wh_map)
+
+    # AGV 初始位置 — 圆角徽章
     for i, (ax_pos, ay_pos) in enumerate(cfg.agv_init_positions):
         _draw_agv_badge(ax_map, ax_pos, ay_pos, i)
 

@@ -12,6 +12,8 @@ from __future__ import annotations
 import heapq
 from typing import TYPE_CHECKING
 
+from src.warehouse.fleet.map_builder import MAP_STORAGE
+
 if TYPE_CHECKING:
     from src.warehouse.fleet.map_builder import WarehouseMap
     from src.warehouse.wms.config import WarehouseConfig
@@ -77,14 +79,19 @@ class PathFinder:
     def _heuristic(a: tuple[int, int], b: tuple[int, int]) -> int:
         return abs(a[0] - b[0]) + abs(a[1] - b[1])
 
-    def _is_passable(self, cur: tuple[int, int], nxt: tuple[int, int]) -> bool:
+    def _is_passable(self, cur: tuple[int, int], nxt: tuple[int, int],
+                     is_goal: bool = False) -> bool:
         gw = self.wmap.config.grid_size
         gh = self.wmap.config.grid_height or gw
         nx, ny = nxt
         if not (0 <= nx < gw and 0 <= ny < gh):
             return False
         cell = self.grid[ny][nx]
-        return cell != 0  # MAP_OBSTACLE
+        if cell == 0:
+            return False
+        if cell == MAP_STORAGE and not is_goal:
+            return False
+        return True
 
     def find_base_path(self, start: tuple, end: tuple) -> tuple[list[tuple[int, int]], int]:
         """基础A*（无时空约束，方向感知），带缓存
@@ -132,7 +139,7 @@ class PathFinder:
             for dx, dy, _, move_dir_str in DIRECTIONS:
                 nx, ny = x + dx, y + dy
                 nxt = (nx, ny)
-                if not self._is_passable((x, y), nxt):
+                if not self._is_passable((x, y), nxt, is_goal=(nxt == end)):
                     continue
                 new_g = cur_g + 1
                 ns = (nx, ny, move_dir_str)
@@ -209,7 +216,7 @@ class PathFinder:
                 nx, ny = x + dx, y + dy
                 nxt = (nx, ny)
 
-                if not self._is_passable((x, y), nxt):
+                if not self._is_passable((x, y), nxt, is_goal=(nxt == end)):
                     continue
 
                 turn_cost = c.AGV_TURN_TIME if move_dir_str != cur_dir else 0

@@ -131,6 +131,9 @@ if __name__ == "__main__":
     config = WarehouseConfig()
 
     args = sys.argv[1:]
+    do_animate = "--animate" in args
+    if do_animate:
+        args.remove("--animate")
 
     if len(args) > 0 and args[0] == "--ablation":
         map_name = args[1] if len(args) > 1 else config.MAP_NAME
@@ -153,3 +156,7 @@ if __name__ == "__main__":
 
         MetricsCollector.export_json(result, "output/result.json")
         print("\n  结果已保存到 output/result.json")
+
+        if do_animate:
+            from src.warehouse.visualize_animation import create_animation
+            create_animation(wmap, result, "output/animation.gif", fps=10)
