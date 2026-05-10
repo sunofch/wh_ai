@@ -18,9 +18,7 @@ from src.warehouse.simulation.metrics import MetricsCollector
 from src.warehouse.models import WorkOrder
 
 # 注册所有地图
-import src.warehouse.maps.medium_50x50  # noqa: F401
-import src.warehouse.maps.large_100x100  # noqa: F401
-import src.warehouse.maps.extreme  # noqa: F401
+import src.warehouse.maps.medium_57x47  # noqa: F401
 
 
 class AGVSystemApp:

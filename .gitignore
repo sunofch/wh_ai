@@ -51,3 +51,6 @@ snapshots.py
 # 测试与工具缓存
 .pytest_cache/
 .superpowers/
+
+# 库存数据库
+data/inventory.db
