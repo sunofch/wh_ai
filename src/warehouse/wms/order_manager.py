@@ -1,25 +1,15 @@
 # src/warehouse/wms/order_manager.py
-"""工单生成
-
-两种来源:
-  - from_random: 随机生成工单(用于仿真测试), 每单2-6项, 10%概率紧急
-  - from_port_instruction: 从VLM解析的PortInstruction生成工单
-"""
-
 from __future__ import annotations
 import random
-
-import numpy as np
 
 from src.warehouse.models import (
     WorkOrder, OrderItem, OrderPriority, TaskType, MapConfig,
 )
 
-
-# action_required → TaskType 映射
 _ACTION_MAP = {
-    "更换": TaskType.OUTBOUND, "领取": TaskType.OUTBOUND, "出库": TaskType.OUTBOUND,
-    "入库": TaskType.INBOUND, "补充": TaskType.INBOUND, "补货": TaskType.INBOUND,
+    "入库": TaskType.INBOUND,
+    "出库": TaskType.OUTBOUND,
+    "调库": TaskType.TRANSFER,
 }
 
 
@@ -27,15 +17,19 @@ class OrderManager:
     def __init__(self, map_config: MapConfig, seed: int = 42):
         self.config = map_config
         self.seed = seed
-        # 获取端口列表
-        self.inbound_ports = [name for name, cfg in map_config.ports.items() if cfg["type"] == "INBOUND"]
-        self.outbound_ports = [name for name, cfg in map_config.ports.items() if cfg["type"] == "OUTBOUND"]
+        self.inbound_ports = [
+            name for name, cfg in map_config.ports.items()
+            if cfg["type"] == "INBOUND"
+        ]
+        self.outbound_ports = [
+            name for name, cfg in map_config.ports.items()
+            if cfg["type"] == "OUTBOUND"
+        ]
 
     def from_random(self, count: int,
                     min_items: int = 2, max_items: int = 6) -> list[WorkOrder]:
         """生成随机工单"""
         rng = random.Random(self.seed)
-        np_rng = np.random.RandomState(self.seed)
         orders = []
         for i in range(count):
             is_urgent = rng.random() < 0.1
@@ -44,7 +38,8 @@ class OrderManager:
             items = []
             for j in range(n_items):
                 task_type = rng.choice(list(TaskType))
-                port = (rng.choice(self.inbound_ports) if task_type == TaskType.INBOUND
+                port = (rng.choice(self.inbound_ports)
+                        if task_type == TaskType.INBOUND
                         else rng.choice(self.outbound_ports))
                 items.append(OrderItem(
                     item_id=j + 1,
@@ -57,35 +52,66 @@ class OrderManager:
             ))
         return orders
 
-    def from_port_instruction(self, instruction) -> WorkOrder | None:
-        """从PortInstruction生成工单"""
-        # 检查全空
-        if all(v is None for v in [instruction.part_name, instruction.model,
-                                    instruction.quantity, instruction.action_required]):
+    def from_port_instruction(self, instruction, inventory_db=None) -> WorkOrder | None:
+        """从 PortInstruction 生成工单。
+
+        inventory_db 可选，提供时按 model/part_name 解析真实储位。
+        """
+        if all(v is None for v in [
+            instruction.part_name, instruction.model,
+            instruction.quantity, instruction.action_required,
+        ]):
             return None
 
-        model = instruction.model or ""
-        quantity = instruction.quantity or 1
-        action = instruction.action_required or ""
+        rng = random.Random(self.seed)
+        task_type = _ACTION_MAP.get(
+            instruction.action_required or "", TaskType.OUTBOUND
+        )
+        priority = (OrderPriority.URGENT if instruction.is_urgent
+                    else OrderPriority.NORMAL)
 
-        # 映射task_type
-        task_type = TaskType.OUTBOUND  # 默认
-        for key, val in _ACTION_MAP.items():
-            if key in action:
-                task_type = val
-                break
+        # 自动分配端口
+        if task_type == TaskType.INBOUND:
+            port = rng.choice(self.inbound_ports) if self.inbound_ports else ""
+        else:
+            port = rng.choice(self.outbound_ports) if self.outbound_ports else ""
+
+        # 通过 InventoryDB 解析储位
+        resolved_pick = ""
+        resolved_dest = ""
+        if inventory_db is not None:
+            inv_item = None
+            if instruction.model:
+                inv_item = inventory_db.query_by_model(instruction.model)
+            if inv_item is None and instruction.part_name:
+                inv_item = inventory_db.query_by_part_name(instruction.part_name)
+            if inv_item:
+                if task_type == TaskType.OUTBOUND:
+                    resolved_pick = inv_item.location
+                    resolved_dest = port
+                elif task_type == TaskType.INBOUND:
+                    resolved_pick = port
+                    resolved_dest = inv_item.location
+                else:  # TRANSFER
+                    resolved_pick = inv_item.location
+                    resolved_dest = port
 
         item = OrderItem(
-            item_id=1, task_type=task_type, model=model,
+            item_id=1,
+            task_type=task_type,
+            model=instruction.model or "",
             part_name=instruction.part_name or "",
-            quantity=quantity,
-            target_location=instruction.location or "",
+            quantity=instruction.quantity or 1,
+            resolved_pick=resolved_pick,
+            resolved_dest=resolved_dest,
         )
         return WorkOrder(
-            order_id=1, source="vlm", priority=OrderPriority.NORMAL,
+            order_id=1,
+            source="vlm",
+            priority=priority,
             items=[item],
             metadata={
-                "installation_equipment": instruction.installation_equipment,
                 "description": instruction.description,
+                "raw_text": instruction.description or "",
             },
         )

@@ -51,7 +51,6 @@ class InventoryDB:
     def seed_from_map(self, map_config: MapConfig, seed: int = 42):
         """首次启动时从地图配置初始化库存，已存在的记录跳过。"""
         rng = random.Random(seed)
-        model_names = [f"M{i * 100}" for i in range(1, 50)]
         part_names = {
             "mechanical": ["轴承", "齿轮", "液压泵", "联轴器", "制动器"],
             "electrical": ["电机", "传感器", "电缆", "控制器", "继电器"],
@@ -70,7 +69,7 @@ class InventoryDB:
                     for bay in range(1, bays_per_row + 1):
                         location = f"{zone_name}_R{row}_B{bay}"
                         qty = rng.randint(0, 3)
-                        model = model_names[idx % len(model_names)]
+                        model = f"M{idx + 100}"      # 全局唯一型号，M100 起始
                         part_name = parts[idx % len(parts)]
                         conn.execute(
                             """INSERT OR IGNORE INTO inventory
