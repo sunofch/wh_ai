@@ -61,6 +61,8 @@ class OrderItem(BaseModel):
     part_name: str = ""
     quantity: int = 1
     target_location: str = ""   # 端口名或储位名
+    resolved_pick: str = ""     # InventoryDB 已解析的取货储位
+    resolved_dest: str = ""     # 已解析的送货端口
 
 
 class WorkOrder(BaseModel):

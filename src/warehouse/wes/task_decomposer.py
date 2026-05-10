@@ -53,8 +53,14 @@ class TaskDecomposer:
 
     def _resolve_locations(self, item: OrderItem, storage_names: list[str],
                            storage_inv: dict, rng: random.Random) -> tuple[str, str]:
+        # 优先使用 InventoryDB 已解析的位置
+        if item.resolved_pick and item.resolved_dest:
+            return item.resolved_pick, item.resolved_dest
+
         if item.task_type == TaskType.INBOUND:
-            port = rng.choice(self.inbound_ports)
+            port = item.resolved_pick or rng.choice(self.inbound_ports)
+            if item.resolved_dest:
+                return port, item.resolved_dest
             available = [s for s in storage_names if storage_inv.get(s, 0) < 3]
             if not available:
                 available = storage_names
@@ -62,7 +68,9 @@ class TaskDecomposer:
             storage_inv[dest] = storage_inv.get(dest, 0) + 1
             return port, dest
         else:
-            port = rng.choice(self.outbound_ports)
+            port = item.resolved_dest or rng.choice(self.outbound_ports)
+            if item.resolved_pick:
+                return item.resolved_pick, port
             available = [s for s in storage_names if storage_inv.get(s, 0) > 0]
             if not available:
                 available = storage_names
