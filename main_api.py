@@ -23,7 +23,7 @@ def build_app():
     from src.warehouse.fleet.fleet_manager import FleetManager
     from src.warehouse.wms.config import WarehouseConfig
     from src.warehouse.wms.order_manager import OrderManager
-    from src.warehouse.wms.inventory_db import InventoryDB
+    from src.warehouse.wms.inventory_db import StockManager as InventoryDB
     from src.api.app import create_app
 
     wh_config = WarehouseConfig()

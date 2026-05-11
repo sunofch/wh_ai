@@ -27,7 +27,7 @@ def test_outbound_maps_to_outbound_port(setup):
 
 def test_inbound_maps_to_inbound_port(setup):
     om, db, _ = setup
-    inst = PortInstruction(part_name="电机", quantity=1, action_required="入库")
+    inst = PortInstruction(part_name="传感器", quantity=1, action_required="入库")
     order = om.from_port_instruction(inst, inventory_db=db)
     assert order is not None
     assert order.items[0].task_type == TaskType.INBOUND
