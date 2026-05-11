@@ -47,8 +47,11 @@ class InventoryItem(BaseModel):
     """库存条目: 一个型号对应一个储位"""
     model: str
     part_name: str
+    en_name: str = ""           # 英文名称, 如 "Deep Groove Ball Bearing"
     quantity: int
-    location: str               # 储位名, 如 "Mech1_R2_B5"
+    reserved: int = 0           # 已预留（锁定的库存）
+    available: int = 0          # = quantity - reserved（只读计算字段）
+    location: str               # 储位名, 如 "Mech1_R1_B1"
     zone: str                   # 区域名, 如 "Mech1"
     max_capacity: int = 4
 
