@@ -31,6 +31,8 @@ class OrderQueue:
         if order.priority == OrderPriority.URGENT:
             self._urgent_queue.append(order)
         else:
+            if not self._queue:
+                self._last_flush_time = time.time()
             self._queue.append(order)
         self._get_event().set()
 

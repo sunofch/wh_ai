@@ -189,7 +189,7 @@ python main_api.py --port 9000  # 自定义端口
 ```bash
 curl -X POST http://localhost:8000/instructions \
   -H "Content-Type: application/json" \
-  -d '{"text": "需要2桶抗磨液压油出库"}'
+  -d '{"text": "需要2个弹性爪型联轴器，型号为GS-28-98A-LOVEJOY"}'
 ```
 
 ```json
@@ -370,6 +370,107 @@ with open("schedule.gif", "wb") as f:
     f.write(gif.content)
 print("动画已保存为 schedule.gif")
 ```
+
+#### 9. 多品类批量调度（10 条真实数据，可直接运行）
+
+以下零件名称和型号均来自 `inventory_db.py` 的库存目录（`_PARTS_CATALOG`），10 条指令提交后自动触发批量调度（`SIZE_THRESHOLD=10`）。
+
+**Python 一键运行脚本：**
+
+```python
+import time
+import requests
+
+BASE = "http://localhost:8000"
+
+# 10 条指令覆盖 5 个品类（机械/电气/耗材/安全/工具）
+instructions = [
+    "出库2个深沟球轴承，型号6208-2RS-C3-SKF",
+    "出库1台三相异步电动机，型号Y160M-4-11kW-ABB",
+    "出库1桶抗磨液压油，型号L-HM46-200L-KUNLUN",
+    "出库1个ABS工程安全帽，型号VGard-E2-WHT-MSA",
+    "出库1把液压力矩扳手，型号HTW-3400Nm-ENERPAC",
+    "出库1个弹性爪型联轴器，型号ROTEX-48-98ShA-KTR",
+    "出库1台变频调速器，型号ACS580-039A-ABB",
+    "出库1个高压液压油滤芯，型号HF-250x20Q-HYDAC",
+    "出库1副防冲击护目镜，型号VMaxx-OTG-CLR-UVEX",
+    "出库1台数字钳形万用表，型号F325-600V-FLUKE",
+]
+
+print("=== 提交 10 条指令 ===")
+for text in instructions:
+    r = requests.post(f"{BASE}/instructions", json={"text": text})
+    r.raise_for_status()
+    d = r.json()
+    print(f"[{d['parsed']['part_name']}]  位置={d['resolved_location']}  端口={d['target_port']}")
+
+print("\n=== 等待调度完成 ===")
+while True:
+    status = requests.get(f"{BASE}/status").json()
+    print(f"  队列: {status['queue_size']} 条 | 调度状态: {status['scheduler_status']}")
+    if status["queue_size"] == 0 and status["last_run_id"]:
+        run_id = status["last_run_id"]
+        break
+    time.sleep(3)
+
+print("\n=== 调度结果 ===")
+result = requests.get(f"{BASE}/result/{run_id}").json()
+print(f"  run_id       : {result['run_id']}")
+print(f"  工单数        : {result['order_count']}")
+print(f"  makespan     : {result['makespan']} 步")
+print(f"  总移动距离    : {result['total_distance']}")
+print(f"  AGV 利用率   : {result['agv_utilization']:.1%}")
+print(f"  规划耗时      : {result['planning_time']:.2f}s")
+
+print("\n=== 下载动画 ===")
+gif = requests.get(f"{BASE}/result/{run_id}/animation")
+with open("schedule.gif", "wb") as f:
+    f.write(gif.content)
+print("  动画已保存 → schedule.gif")
+```
+
+**等效的 curl 命令（逐条提交）：**
+
+```bash
+BASE=http://localhost:8000
+
+curl -s -X POST $BASE/instructions -H "Content-Type: application/json" \
+  -d '{"text": "出库2个深沟球轴承，型号6208-2RS-C3-SKF"}'
+
+curl -s -X POST $BASE/instructions -H "Content-Type: application/json" \
+  -d '{"text": "出库1台三相异步电动机，型号Y160M-4-11kW-ABB"}'
+
+curl -s -X POST $BASE/instructions -H "Content-Type: application/json" \
+  -d '{"text": "出库1桶抗磨液压油，型号L-HM46-200L-KUNLUN"}'
+
+curl -s -X POST $BASE/instructions -H "Content-Type: application/json" \
+  -d '{"text": "出库1个ABS工程安全帽，型号VGard-E2-WHT-MSA"}'
+
+curl -s -X POST $BASE/instructions -H "Content-Type: application/json" \
+  -d '{"text": "出库1把液压力矩扳手，型号HTW-3400Nm-ENERPAC"}'
+
+curl -s -X POST $BASE/instructions -H "Content-Type: application/json" \
+  -d '{"text": "出库1个弹性爪型联轴器，型号ROTEX-48-98ShA-KTR"}'
+
+curl -s -X POST $BASE/instructions -H "Content-Type: application/json" \
+  -d '{"text": "出库1台变频调速器，型号ACS580-039A-ABB"}'
+
+curl -s -X POST $BASE/instructions -H "Content-Type: application/json" \
+  -d '{"text": "出库1个高压液压油滤芯，型号HF-250x20Q-HYDAC"}'
+
+curl -s -X POST $BASE/instructions -H "Content-Type: application/json" \
+  -d '{"text": "出库1副防冲击护目镜，型号VMaxx-OTG-CLR-UVEX"}'
+
+curl -s -X POST $BASE/instructions -H "Content-Type: application/json" \
+  -d '{"text": "出库1台数字钳形万用表，型号F325-600V-FLUKE"}'
+
+# 等调度完成后查结果（用 /status 中的 last_run_id）
+curl -s $BASE/status
+curl -s $BASE/result/<run_id>
+curl -o schedule.gif $BASE/result/<run_id>/animation
+```
+
+> **说明**：上述零件名称与型号均来自 `inventory_db.py` 的 `_PARTS_CATALOG`，每条指令请求数量≤2，低于数据库初始库存（seeded 5～20），提交后必然命中库存。API 服务使用规则解析（VLM 未启动时降级），通过零件名 LIKE 匹配定位储位后执行 `reserve`，10 条触发批量调度。
 
 ### API 模块结构
 
