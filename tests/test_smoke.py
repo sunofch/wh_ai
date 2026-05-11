@@ -1,7 +1,7 @@
 """端到端冒烟测试——不需要VLM，使用规则解析 + 真实调度仿真"""
 import pytest
 from src.parser.parser import PortInstruction, PortInstructionParser
-from src.warehouse.wms.inventory_db import InventoryDB
+from src.warehouse.wms.inventory_db import StockManager
 from src.warehouse.wms.order_manager import OrderManager
 from src.warehouse.wes.task_decomposer import TaskDecomposer
 from src.warehouse.wes.clustering import OrderClusterer
@@ -21,7 +21,7 @@ def warehouse(tmp_path_factory):
     wmap = WarehouseMap(map_config)
     fleet = FleetManager(wmap, wh_config)
     fleet.precompute()
-    inv_db = InventoryDB(db_path=str(tmp / "inv.db"))
+    inv_db = StockManager(db_path=str(tmp / "inv.db"))
     inv_db.seed_from_map(map_config, seed=42)
     om = OrderManager(map_config, seed=42)
     return wh_config, map_config, wmap, fleet, inv_db, om

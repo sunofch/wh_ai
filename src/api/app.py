@@ -52,6 +52,7 @@ def create_app(
             "last_run_id": None,
             "last_run_at": None,
             "scheduler_status": "idle",
+            "inv_db": inv_db,
         }
         app.state.state_meta = state_meta
 

@@ -1,7 +1,7 @@
 import pytest
 from src.parser.parser import PortInstruction
 from src.warehouse.wms.order_manager import OrderManager
-from src.warehouse.wms.inventory_db import InventoryDB
+from src.warehouse.wms.inventory_db import StockManager
 from src.warehouse.models import TaskType, OrderPriority
 from src.warehouse.maps.base import MapRegistry
 import src.warehouse.maps.medium_57x47  # noqa: F401
@@ -10,7 +10,7 @@ import src.warehouse.maps.medium_57x47  # noqa: F401
 @pytest.fixture
 def setup(tmp_path):
     map_config = MapRegistry.get("medium_57x47")
-    db = InventoryDB(db_path=str(tmp_path / "inv.db"))
+    db = StockManager(db_path=str(tmp_path / "inv.db"))
     db.seed_from_map(map_config, seed=42)
     om = OrderManager(map_config, seed=42)
     return om, db, map_config

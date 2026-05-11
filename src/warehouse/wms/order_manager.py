@@ -76,15 +76,15 @@ class OrderManager:
         else:
             port = rng.choice(self.outbound_ports) if self.outbound_ports else ""
 
-        # 通过 InventoryDB 解析储位
+        # 通过 StockManager 解析储位
         resolved_pick = ""
         resolved_dest = ""
         if inventory_db is not None:
             inv_item = None
             if instruction.model:
-                inv_item = inventory_db.query_by_model(instruction.model)
+                inv_item = inventory_db.query(instruction.model)
             if inv_item is None and instruction.part_name:
-                inv_item = inventory_db.query_by_part_name(instruction.part_name)
+                inv_item = inventory_db.query_by_name(instruction.part_name)
             if inv_item:
                 if task_type == TaskType.OUTBOUND:
                     resolved_pick = inv_item.location
