@@ -229,30 +229,17 @@ class VLLMServerManager:
             return None
 
     def is_server_running(self) -> bool:
-        """检查服务器是否正在运行
+        """检查配置的 VLM 服务器是否正在运行（通过 HTTP health check）
 
         Returns:
             bool: 服务器运行中返回 True
         """
-        pid_info = self.load_pid_file()
-        if not pid_info:
-            return False
-
-        # 检查进程是否存在
-        try:
-            pid = pid_info["pid"]
-            # 使用 os.kill(pid, 0) 检查进程是否存在
-            # 如果进程存在，os.kill(pid, 0) 不抛出异常
-            # 如果进程不存在，抛出 ProcessLookupError
-            os.kill(pid, 0)
-            return True
-        except (OSError, ProcessLookupError):
-            # 进程不存在，清理 PID 文件
-            try:
-                os.remove(".vlm_server.pid")
-            except OSError:
-                pass
-            return False
+        model_type = config.vlm_selector.model_type.lower()
+        if model_type in ('qwen35', 'qwen3.5', 'qwen3'):
+            model_type = 'qwen35'
+        else:
+            model_type = 'qwen2'
+        return self.health_check(model_type)
 
 
 # 全局单例

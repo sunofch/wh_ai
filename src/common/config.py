@@ -55,6 +55,7 @@ class VLLMServerConfig(BaseAppConfig):
     base_port: int = Field(default=8000, alias="VLLM_SERVER_BASE_PORT")
     tensor_parallel_size: int = Field(default=1, alias="VLLM_SERVER_TP_SIZE")
     gpu_memory_utilization: float = Field(default=0.9, alias="VLLM_SERVER_GPU_MEM_UTIL")
+    cuda_visible_devices: Optional[str] = Field(default=None, alias="CUDA_VISIBLE_DEVICES")
     max_model_len: Optional[int] = Field(default=None, alias="VLLM_SERVER_MAX_MODEL_LEN")
     limit_mm_per_prompt: str = Field(
         default='{"image": 4}',

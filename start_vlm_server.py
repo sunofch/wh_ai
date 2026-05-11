@@ -1,22 +1,18 @@
 #!/usr/bin/env python
-"""vLLM 服务器启动脚本
-
-独立启动 vLLM 服务器进程，保存 PID 文件，实时显示日志
-"""
+"""vLLM 服务器启动脚本 — 按 Ctrl+C 停止"""
 import logging
 import os
+import socket
 import subprocess
 import sys
 import time
 
-# 配置日志
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(levelname)s - %(message)s'
 )
 logger = logging.getLogger(__name__)
 
-# 添加项目根目录到 Python 路径
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from src.common.config import config
@@ -24,88 +20,32 @@ from src.vlm.server import get_vlm_server_manager
 
 
 def read_config() -> dict:
-    """读取 .env 配置
-
-    Returns:
-        包含模型类型、端口、模型名称的配置字典
-    """
     model_type = config.vlm_selector.model_type.lower()
-
-    # 标准化模型类型
     if model_type in ('qwen35', 'qwen3.5', 'qwen3'):
         model_type = 'qwen35'
-    elif model_type in ('qwen2', 'qwen2-vl', 'qwen2vl'):
-        model_type = 'qwen2'
     else:
-        # 默认使用 qwen2
         model_type = 'qwen2'
 
-    # 确定端口和模型名称
     base_port = config.vllm_server.base_port
-    port_map = {
-        'qwen2': base_port,
-        'qwen35': base_port + 1
-    }
+    port = base_port + (1 if model_type == 'qwen35' else 0)
+    model_name = config.vlm35.model if model_type == 'qwen35' else config.vlm.model
 
-    if model_type == 'qwen2':
-        model_name = config.vlm.model
-    else:
-        model_name = config.vlm35.model
-
-    return {
-        'model_type': model_type,
-        'port': port_map[model_type],
-        'model_name': model_name
-    }
+    return {'model_type': model_type, 'port': port, 'model_name': model_name}
 
 
-def is_port_available(port: int) -> bool:
-    """检查端口是否可用
-
-    Args:
-        port: 端口号
-
-    Returns:
-        bool: 可用返回 True
-    """
-    import socket
+def is_port_in_use(port: int) -> bool:
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-        try:
-            s.bind(('127.0.0.1', port))
-            return True
-        except OSError:
-            return False
+        return s.connect_ex(('127.0.0.1', port)) == 0
 
 
 def main():
-    """主函数"""
-    # 读取配置
     cfg = read_config()
-    logger.info(f"读取配置: VLM_MODEL_TYPE={cfg['model_type']}")
-    logger.info(f"启动模型: {cfg['model_name']} 在端口 {cfg['port']}")
+    logger.info(f"模型: {cfg['model_name']}  端口: {cfg['port']}")
 
-    # 获取服务器管理器
-    server_mgr = get_vlm_server_manager()
-
-    # 检查现有 PID 文件
-    if server_mgr.is_server_running():
-        pid_info = server_mgr.load_pid_file()
-        logger.error(
-            f"服务器已在运行 (PID: {pid_info['pid']}, "
-            f"端口: {pid_info['port']})\n"
-            f"请先运行: python stop_vlm_server.py"
-        )
+    if is_port_in_use(cfg['port']):
+        logger.error(f"端口 {cfg['port']} 已被占用，服务器可能已在运行")
         sys.exit(1)
 
-    # 检查端口是否被占用
-    if not is_port_available(cfg['port']):
-        logger.error(
-            f"端口 {cfg['port']} 已被占用\n"
-            f"请运行: python stop_vlm_server.py"
-        )
-        sys.exit(1)
-
-    # 构造 vllm serve 命令
     cmd = [
         'vllm', 'serve', cfg['model_name'],
         '--host', config.vllm_server.host,
@@ -118,17 +58,19 @@ def main():
     if config.vllm_server.max_model_len:
         cmd.extend(['--max-model-len', str(config.vllm_server.max_model_len)])
 
-    logger.info(f"等待服务器就绪（最多 {config.vllm_server.startup_timeout} 秒）...")
-    logger.info("========== vLLM 服务器启动 ==========")
+    env = os.environ.copy()
+    if config.vllm_server.cuda_visible_devices is not None:
+        env['CUDA_VISIBLE_DEVICES'] = config.vllm_server.cuda_visible_devices
+        logger.info(f"GPU 选择: CUDA_VISIBLE_DEVICES={config.vllm_server.cuda_visible_devices}")
+    if os.environ.get('VLLM_OFFLINE', '').lower() in ('1', 'true', 'yes'):
+        env['HF_HUB_OFFLINE'] = '1'
+        env['TRANSFORMERS_OFFLINE'] = '1'
+        logger.info("离线模式：从本地缓存加载模型")
 
-    # 启动服务器（输出直接到终端，不经过管道）
-    process = subprocess.Popen(
-        cmd,
-        stdout=None,
-        stderr=None,
-    )
+    process = subprocess.Popen(cmd, env=env)
+    logger.info("========== vLLM 服务器启动中 ==========")
 
-    # 等待服务器健康检查通过
+    server_mgr = get_vlm_server_manager()
     max_wait = config.vllm_server.startup_timeout
     start_time = time.time()
 
@@ -136,22 +78,21 @@ def main():
         time.sleep(1)
         if server_mgr.health_check(cfg['model_type']):
             elapsed = int(time.time() - start_time)
-            logger.info(f"✓ vLLM 服务器启动成功 (PID: {process.pid}, 耗时: {elapsed}秒)")
+            logger.info(f"✓ 启动成功 (PID: {process.pid}, 耗时: {elapsed}秒)")
+            logger.info("按 Ctrl+C 停止服务器")
             break
     else:
-        # 启动超时
         process.terminate()
-        process.wait(timeout=5)
-        logger.error(f"服务器启动超时（{max_wait}秒）")
-        logger.error("诊断建议:")
-        logger.error("  1. 检查GPU状态: nvidia-smi")
-        logger.error(f"  2. 检查端口: netstat -tlnp | grep {cfg['port']}")
-        logger.error(f"  3. 增加超时: 在.env中设置 VLLM_SERVER_STARTUP_TIMEOUT={max_wait+60}")
+        try:
+            process.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            process.kill()
+            process.wait()
+        logger.error(f"启动超时（{max_wait}秒）")
+        logger.error(f"  检查 GPU: nvidia-smi")
+        logger.error(f"  检查端口: netstat -tlnp | grep {cfg['port']}")
+        logger.error(f"  增加超时: VLLM_SERVER_STARTUP_TIMEOUT={max_wait + 60}")
         sys.exit(1)
-
-    # 保存 PID 文件
-    server_mgr.save_pid_file(cfg['model_type'], process.pid)
-    logger.info(f"按 Ctrl+C 停止服务器")
 
     try:
         process.wait()
@@ -161,16 +102,9 @@ def main():
         try:
             process.wait(timeout=10)
         except subprocess.TimeoutExpired:
-            logger.warning("服务器未响应 SIGTERM，使用 SIGKILL")
+            logger.warning("SIGTERM 无响应，使用 SIGKILL")
             process.kill()
             process.wait()
-
-        # 清理 PID 文件
-        try:
-            os.remove(".vlm_server.pid")
-        except OSError:
-            pass
-
         logger.info("✓ 服务器已停止")
 
 

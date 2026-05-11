@@ -26,6 +26,7 @@ class InstructionResponse(BaseModel):
     vlm_available:     bool
     parsed:            ParsedInstruction
     resolved_location: str = ""
+    resolved_en_name:  str = ""
     target_port:       str = ""
 
 
