@@ -49,7 +49,7 @@
 - **中文名称**: 电磁截止阀 / 电磁阀 / 液压截止阀
 - **英文名称**: Electromagnetic Shut-off Valve
 - **英文缩写**: ESV
-- **型号示例**: YCFC-25-DN25-24VDC-YUKEN、DG4V3-2A-MU-H7-60-VICKERS、4WE6D-BOSCH
+- **型号示例**: YCFC-25-DN25-24V、DG4V3-2A-MU-H7-60-VICKERS、4WE6D-BOSCH
 - **安装设备**: 液压回路控制、气动管路通断、冷却水路切换
 - **规格参数**:
   - 通径: DN25 / 工作压力: 0~21MPa / 线圈电压: DC24V
@@ -62,7 +62,7 @@
 - **中文名称**: 高压橡胶软管 / 液压软管 / 高压胶管
 - **英文名称**: High Pressure Rubber Hose Assembly
 - **英文缩写**: HPRH
-- **型号示例**: HPH-DN12-1200mm-315bar-PARKER、SAE100R2-1/2-1000mm-EATON、1SN-DN10-MANULI
+- **型号示例**: HPH-DN12-1200-315bar、SAE100R2-1/2-1000mm-EATON、1SN-DN10-MANULI
 - **安装设备**: 液压缸进出油管、液压站至执行器连接、移动设备液压供油
 - **规格参数**:
   - 内径: DN12（1/2英寸）/ 长度: 1200mm / 工作压力: 315bar

@@ -10,7 +10,7 @@
 - **中文名称**: ABS工程安全帽 / 安全帽 / 工程帽
 - **英文名称**: ABS Engineering Safety Helmet
 - **英文缩写**: AESH
-- **型号示例**: V-Gard-E2-WHT-MSA、G3000CXV-3M、Vented-H-700V-HONEYWELL
+- **型号示例**: VGard-E2-WHT-MSA、G3000CXV-3M、Vented-H-700V-HONEYWELL
 - **安装设备**: 仓库人员进场作业标配
 - **规格参数**:
   - 材质: ABS工程塑料 / 颜色: 白色（管理）/ 黄色（作业）/ 蓝色（访客）
@@ -36,7 +36,7 @@
 - **中文名称**: 防冲击护目镜 / 安全护目镜 / 防护眼镜
 - **英文名称**: Impact Resistant Safety Goggles
 - **英文缩写**: IRSG
-- **型号示例**: V-Maxx-OTG-CLR-UVEX、3M-334AF、Pulsafe-PW15-HONEYWELL
+- **型号示例**: VMaxx-OTG-CLR-UVEX、3M-334AF、Pulsafe-PW15-HONEYWELL
 - **安装设备**: 机械加工、焊接辅助、粉尘环境作业
 - **规格参数**:
   - 镜片材质: 聚碳酸酯（PC）/ 透光率: 89%（无色）
@@ -62,7 +62,7 @@
 - **中文名称**: B类防化学品防护服 / 防化服 / 化学防护服
 - **英文名称**: Type B Chemical Protective Suit
 - **英文缩写**: BCPS
-- **型号示例**: Tychem-4510-BLU-DUPONT、Microgard-2000-LAKELAND、MIRA-Safety-HAZ-SUIT
+- **型号示例**: Tychem-4510-BLU-DP、Microgard-2000-LAKELAND、MIRA-Safety-HAZ-SUIT
 - **安装设备**: 化学品存储区作业、泄漏处置、危化品搬运
 - **规格参数**:
   - 防护级别: Type B（液密型）/ 材质: Tychem 4500

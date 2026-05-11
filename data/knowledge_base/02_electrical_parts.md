@@ -36,7 +36,7 @@
 - **中文名称**: 变频调速器 / 变频器 / 变频驱动器
 - **英文名称**: Variable Frequency Drive
 - **英文缩写**: VFD
-- **型号示例**: ACS580-01-039A-4-ABB、VLT-AQUA-FC202-DANFOSS、FR-E840-MITSUBISHI
+- **型号示例**: ACS580-039A-ABB、VLT-AQUA-FC202-DANFOSS、FR-E840-MITSUBISHI
 - **安装设备**: 输送线调速控制柜、提升机变频控制系统、水泵变频节能改造
 - **规格参数**:
   - 额定功率: 18.5kW / 输入电压: 380-480V 3相
@@ -49,7 +49,7 @@
 - **中文名称**: 可编程逻辑控制器 / PLC / 可编程控制器
 - **英文名称**: Programmable Logic Controller
 - **英文缩写**: PLC
-- **型号示例**: CPU1214C-DC-DC-DC-SIEM、Q04UDVCPU-MITSUBISHI、CP1H-X40DT-D-OMRON
+- **型号示例**: CPU1214C-DC-SIEM、Q04UDVCPU-MITSUBISHI、CP1H-X40DT-D-OMRON
 - **安装设备**: 自动化控制主柜、AGV调度控制站、输送线顺序控制系统
 - **规格参数**:
   - CPU类型: S7-1200 / 数字输入: 14点 / 数字输出: 10点
