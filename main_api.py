@@ -45,11 +45,14 @@ def build_app():
     parser = None
     vlm_available = False
     try:
+        from src.vlm.server import get_vlm_server_manager
+        if not get_vlm_server_manager().is_server_running():
+            raise RuntimeError("vLLM 服务器未运行")
         from main_interaction import InstructionParser
         parser = InstructionParser()
         vlm_available = True
         logger.info("VLM 解析器初始化成功。")
-    except SystemExit:
+    except (SystemExit, RuntimeError):
         logger.warning("vLLM 服务未运行，将使用规则解析降级。")
     except Exception as e:
         logger.warning("VLM 初始化失败: %s，将使用规则解析降级。", e)

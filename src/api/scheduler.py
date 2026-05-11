@@ -32,8 +32,11 @@ def run_pipeline(
     inbound_ports: list[str],
     outbound_ports: list[str],
     run_id: str,
-) -> ScheduleResult:
-    """同步调度流水线（在线程池中执行）。"""
+) -> tuple[ScheduleResult, "SimulationResult"]:
+    """同步调度流水线（在线程池中执行）。
+
+    Returns: (ScheduleResult, SimulationResult) 元组
+    """
     import time as _time
     t0 = _time.time()
 
@@ -50,20 +53,22 @@ def run_pipeline(
     agv_tasks = fleet.schedule(clusters)
 
     sim = Simulator(wmap, fleet, wh_config)
-    result = sim.run(agv_tasks)
-    result.planning_time = _time.time() - t0
+    sim_result = sim.run(agv_tasks)
+    sim_result.planning_time = _time.time() - t0
 
-    return ScheduleResult(
+    sched = ScheduleResult(
         run_id=run_id,
         order_count=len(orders),
-        makespan=result.makespan,
-        total_distance=result.total_distance,
-        agv_utilization=result.agv_utilization,
-        planning_time=result.planning_time,
+        makespan=sim_result.makespan,
+        total_distance=sim_result.total_distance,
+        agv_utilization=sim_result.agv_utilization,
+        planning_time=sim_result.planning_time,
         instructions=[
             o.metadata.get("raw_text", f"order_{o.order_id}") for o in orders
         ],
     )
+
+    return sched, sim_result
 
 
 async def scheduler_loop(
@@ -74,8 +79,11 @@ async def scheduler_loop(
     wh_config: WarehouseConfig,
     inbound_ports: list[str],
     outbound_ports: list[str],
+    state: dict | None = None,
 ) -> None:
     """后台协程：轮询队列，满足触发条件时批量调度。"""
+    from datetime import datetime
+
     while True:
         await asyncio.sleep(1)
         if not queue.should_flush():
@@ -88,15 +96,20 @@ async def scheduler_loop(
         run_id = str(uuid4())
         logger.info("调度触发: %d 条工单, run_id=%s", len(orders), run_id)
         try:
-            sched_result = await asyncio.to_thread(
+            sched_result, sim_result = await asyncio.to_thread(
                 run_pipeline,
                 orders, wmap, fleet, wh_config,
                 inbound_ports, outbound_ports, run_id,
             )
-            results[run_id] = sched_result
+            results[run_id] = (sched_result, sim_result)
             # LRU: 超过上限时删最旧的
             while len(results) > MAX_RESULTS:
                 results.popitem(last=False)
+            # 更新 state 元数据
+            if state is not None:
+                state["last_run_id"] = run_id
+                state["last_run_at"] = datetime.now()
+                state["scheduler_status"] = "idle"
             logger.info(
                 "调度完成: makespan=%d, util=%.1f%%",
                 sched_result.makespan, sched_result.agv_utilization * 100,

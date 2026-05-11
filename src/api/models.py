@@ -44,3 +44,4 @@ class ScheduleResult(BaseModel):
     agv_utilization: float
     planning_time:   float
     instructions:    list[str] = []
+    has_animation:   bool           = True

@@ -3,11 +3,14 @@ from __future__ import annotations
 import asyncio
 import base64
 import logging
+import random
 from collections import OrderedDict
 from contextlib import asynccontextmanager
+from pathlib import Path
 from uuid import uuid4
 
 from fastapi import FastAPI, HTTPException, Request
+from fastapi.responses import FileResponse
 
 from src.api.models import (
     InstructionRequest, InstructionResponse, ParsedInstruction,
@@ -15,6 +18,11 @@ from src.api.models import (
 )
 from src.api.queue_manager import OrderQueue
 from src.api.scheduler import scheduler_loop
+from src.warehouse.maps.base import MapRegistry
+from src.warehouse.wms.order_manager import OrderManager, _ACTION_MAP
+from src.warehouse.models import TaskType
+
+import src.warehouse.maps.medium_57x47  # noqa: F401
 
 logger = logging.getLogger(__name__)
 
@@ -38,9 +46,14 @@ def create_app(
         app.state.vlm_available    = vlm_available
         app.state.queue            = OrderQueue()
         app.state.results          = OrderedDict()
-        app.state.last_run_id      = None
-        app.state.last_run_at      = None
-        app.state.scheduler_status = "idle"
+        app.state.wmap             = wmap
+
+        state_meta = {
+            "last_run_id": None,
+            "last_run_at": None,
+            "scheduler_status": "idle",
+        }
+        app.state.state_meta = state_meta
 
         sched_task = None
         if wmap and fleet and wh_config:
@@ -49,6 +62,7 @@ def create_app(
                     app.state.queue, app.state.results,
                     wmap, fleet, wh_config,
                     inbound_ports or [], outbound_ports or [],
+                    state=state_meta,
                 )
             )
         yield
@@ -123,7 +137,7 @@ def _register_routes(app: FastAPI):
             if inv_item is None and instruction.part_name:
                 inv_item = st.inv_db.query_by_part_name(instruction.part_name)
             if inv_item:
-                qty = instruction.quantity or 1
+                qty = instruction.quantity if instruction.quantity is not None else 1
                 location = st.inv_db.allocate_stock(inv_item.model, qty)
                 if not location:
                     raise HTTPException(
@@ -138,12 +152,6 @@ def _register_routes(app: FastAPI):
                 resolved_location = location
 
         # 生成工单并入队
-        import src.warehouse.maps.medium_57x47  # noqa: F401
-        from src.warehouse.maps.base import MapRegistry
-        from src.warehouse.wms.order_manager import OrderManager, _ACTION_MAP
-        from src.warehouse.models import TaskType
-        import random
-
         map_config = MapRegistry.get("medium_57x47")
         om = OrderManager(map_config)
         order = om.from_port_instruction(instruction, inventory_db=None)
@@ -153,7 +161,7 @@ def _register_routes(app: FastAPI):
             task_type = _ACTION_MAP.get(action, TaskType.OUTBOUND)
             inbound_p = [n for n, c in map_config.ports.items() if c["type"] == "INBOUND"]
             outbound_p = [n for n, c in map_config.ports.items() if c["type"] == "OUTBOUND"]
-            rng = random.Random(42)
+            rng = random.Random()
             if task_type == TaskType.INBOUND:
                 port = rng.choice(inbound_p) if inbound_p else ""
                 order.items[0].resolved_pick = port
@@ -180,16 +188,42 @@ def _register_routes(app: FastAPI):
     @app.get("/status", response_model=StatusResponse)
     async def get_status(request: Request):
         st = request.app.state
+        meta = getattr(st, "state_meta", {})
         return StatusResponse(
             queue_size=st.queue.size(),
-            last_run_id=st.last_run_id,
-            last_run_at=st.last_run_at,
-            scheduler_status=st.scheduler_status,
+            last_run_id=meta.get("last_run_id"),
+            last_run_at=meta.get("last_run_at"),
+            scheduler_status=meta.get("scheduler_status", "idle"),
         )
 
     @app.get("/result/{run_id}", response_model=ScheduleResult)
     async def get_result(run_id: str, request: Request):
-        result = request.app.state.results.get(run_id)
-        if result is None:
+        entry = request.app.state.results.get(run_id)
+        if entry is None:
             raise HTTPException(status_code=404, detail="run_id not found")
-        return result
+        return entry[0]
+
+    @app.get("/result/{run_id}/animation")
+    async def get_animation(run_id: str, request: Request):
+        """按需生成调度动画 GIF"""
+        entry = request.app.state.results.get(run_id)
+        if entry is None:
+            raise HTTPException(status_code=404, detail="run_id not found")
+
+        sched: ScheduleResult = entry[0]
+        if not sched.has_animation:
+            raise HTTPException(status_code=404, detail="animation not enabled for this run")
+
+        sim_result = entry[1]
+        wmap = request.app.state.wmap
+        if wmap is None or sim_result is None:
+            raise HTTPException(status_code=404, detail="animation data not available")
+
+        gif_path = Path(f"output/animation_{run_id}.gif")
+        if not gif_path.exists():
+            gif_path.parent.mkdir(parents=True, exist_ok=True)
+            from src.warehouse.visualize_animation import create_animation
+            await asyncio.to_thread(create_animation, wmap, sim_result, str(gif_path), fps=10)
+
+        return FileResponse(str(gif_path), media_type="image/gif",
+                            filename=f"animation_{run_id}.gif")

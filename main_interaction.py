@@ -63,7 +63,7 @@ class InstructionParser:
                 "  python status_vlm_server.py\n"
                 "="*60
             )
-            sys.exit(1)
+            raise RuntimeError("vLLM 服务器未运行")
 
         self.asr = get_asr_instance()
         self.vlm = get_vlm_instance()
