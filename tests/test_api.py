@@ -18,11 +18,12 @@ def mock_parser():
 @pytest.fixture
 def mock_inv_db():
     db = MagicMock()
-    db.query_by_model.return_value = None
-    db.query_by_part_name.return_value = MagicMock(
-        model="M100", location="Mech1_R1_B1", quantity=5
+    db.query.return_value = None
+    db.query_by_name.return_value = MagicMock(
+        model="M100", location="Mech1_R1_B1", quantity=5,
+        available=5, en_name="Bearing"
     )
-    db.allocate_stock.return_value = "Mech1_R1_B1"
+    db.reserve.return_value = "Mech1_R1_B1"
     return db
 
 

@@ -127,18 +127,22 @@ def _register_routes(app: FastAPI):
                 detail={"error": "parse_failed", "detail": "无法从输入中提取有效指令"}
             )
 
-        # 库存查询 + 扣减
+        # 库存查询 + 预留
         resolved_location = ""
+        resolved_en_name  = ""
         target_port = ""
+        instruction_id = str(uuid4())
         if st.inv_db:
             inv_item = None
             if instruction.model:
-                inv_item = st.inv_db.query_by_model(instruction.model)
+                inv_item = st.inv_db.query(instruction.model)
             if inv_item is None and instruction.part_name:
-                inv_item = st.inv_db.query_by_part_name(instruction.part_name)
+                inv_item = st.inv_db.query_by_name(instruction.part_name)
             if inv_item:
                 qty = instruction.quantity if instruction.quantity is not None else 1
-                location = st.inv_db.allocate_stock(inv_item.model, qty)
+                location = st.inv_db.reserve(
+                    inv_item.model, qty, order_id=instruction_id
+                )
                 if not location:
                     raise HTTPException(
                         status_code=409,
@@ -146,10 +150,11 @@ def _register_routes(app: FastAPI):
                             "error": "insufficient_stock",
                             "part_name": instruction.part_name,
                             "requested": qty,
-                            "available": inv_item.quantity,
+                            "available": inv_item.available,
                         }
                     )
                 resolved_location = location
+                resolved_en_name  = inv_item.en_name
 
         # 生成工单并入队
         map_config = MapRegistry.get("medium_57x47")
@@ -174,14 +179,16 @@ def _register_routes(app: FastAPI):
 
         if order:
             order.metadata["raw_text"] = req.text or ""
+            order.metadata["order_id"] = instruction_id
             st.queue.push(order)
 
         return InstructionResponse(
-            instruction_id=str(uuid4()),
+            instruction_id=instruction_id,
             status="queued",
             vlm_available=st.vlm_available,
             parsed=ParsedInstruction(**instruction.model_dump()),
             resolved_location=resolved_location,
+            resolved_en_name=resolved_en_name,
             target_port=target_port,
         )
 
