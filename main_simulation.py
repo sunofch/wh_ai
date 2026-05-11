@@ -70,6 +70,7 @@ from src.warehouse.models import AblationFlags
 
 # 注册所有地图
 import src.warehouse.maps.medium_57x47  # noqa: F401
+import src.warehouse.maps.medium_57x47_cluster  # noqa: F401
 
 
 def run_single(config: WarehouseConfig, map_name: str, order_num: int):

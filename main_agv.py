@@ -46,10 +46,10 @@ class AGVSystemApp:
         clusterer = OrderClusterer(self.fleet.path_finder, self.config)
         clusters = clusterer.cluster(tasks, self.config.AGV_MAX_TASK_CAPACITY, self.wmap.zone_pos)
 
-        agv_tasks, makespan = self.fleet.schedule(clusters)
+        agv_tasks = self.fleet.schedule(clusters)
 
         sim = Simulator(self.wmap, self.fleet, self.config)
-        result = sim.run(agv_tasks, makespan)
+        result = sim.run(agv_tasks)
 
         print(f"\n  {'─'*40}")
         print(f"  Makespan: {result.makespan}")

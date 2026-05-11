@@ -112,7 +112,7 @@ python main_simulation.py medium_57x47 40
 # 消融实验（4级对比）
 python main_simulation.py --ablation
 ```
-
+python main_simulation.py --animate medium_57x47_cluster 40
 ### 仓库模块结构
 
 ```
