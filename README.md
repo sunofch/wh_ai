@@ -528,6 +528,12 @@ python main_simulation.py --ablation
 
 # REST API服务（可选：不启动vLLM则降级为规则解析）
 python main_api.py
+
+# 补充库存（首次运行或库存耗尽时）
+python restock_inventory.py --qty 100
+
+# 端到端批量调度测试（提交10条指令→等待调度→打印结果→下载动画）
+python test_api_batch.py
 ```
 
 ---
@@ -650,6 +656,8 @@ wh_graphrag_re/
 ├── main_rag.py               # RAG测试CLI
 ├── start_vlm_server.py       # vLLM服务器启动
 ├── status_vlm_server.py      # vLLM服务器状态查询
+├── test_api_batch.py         # 批量调度端到端测试（10条真实数据→调度→动画）
+├── restock_inventory.py      # 库存一键补充工具（补量+清空预留）
 ├── src/
 │   ├── api/                  # REST API模块
 │   │   ├── app.py            # FastAPI工厂函数
