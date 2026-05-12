@@ -17,6 +17,7 @@ import json_repair
 from src.common.config import config
 from .server import get_vlm_server_manager
 from src.common.utils import image_to_base64
+from src.common.prompts import load_prompts
 
 # 尝试导入 RAG 模块
 try:
@@ -148,13 +149,7 @@ class Qwen2VLM:
         Returns:
             Dict[str, Any]: 解析后的结构化数据，包含解析结果或原始响应
         """
-        # 构造system prompt
-        system_prompt = """
-        你是一位专业的港口作业指令解析助手。
-        你的任务是根据用户的语音文本和图片，提取结构化数据。
-        请严格参考以下信息。
-        tip:注意型号和英文缩写的区别！
-        """
+        system_prompt = load_prompts()["qwen2"]["system"]
 
         # RAG 知识注入
         rag_enabled = enable_rag if enable_rag is not None else self._rag_enabled
