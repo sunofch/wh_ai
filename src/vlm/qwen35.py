@@ -18,6 +18,7 @@ import json_repair
 from src.common.config import config
 from .server import get_vlm_server_manager
 from src.common.utils import image_to_base64
+from src.common.prompts import load_prompts
 
 # 尝试导入 RAG 模块
 try:
@@ -150,11 +151,7 @@ class Qwen35VLM:
         Returns:
             Dict[str, Any]: 解析后的结构化数据，包含解析结果或原始响应
         """
-        # === 核心修改点：System Prompt ===
-        # 专注于"业务推理逻辑"
-        system_prompt = """
-        你是一位专业的港口作业指令解析助手。你的任务是根据用户的语音文本和图片，提取结构化数据。
-        """
+        system_prompt = load_prompts()["qwen35"]["system"]
 
         # RAG 知识注入
         rag_enabled = enable_rag if enable_rag is not None else self._rag_enabled
