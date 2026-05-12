@@ -15,5 +15,13 @@ def test_load_prompts_system_is_nonempty_string():
     assert len(prompts["qwen35"]["system"].strip()) > 0
 
 
+def test_load_prompts_format_prefix_is_nonempty_string():
+    prompts = load_prompts()
+    assert isinstance(prompts["qwen2"]["format_prefix"], str)
+    assert len(prompts["qwen2"]["format_prefix"].strip()) > 0
+    assert isinstance(prompts["qwen35"]["format_prefix"], str)
+    assert len(prompts["qwen35"]["format_prefix"].strip()) > 0
+
+
 def test_load_prompts_is_cached():
     assert load_prompts() is load_prompts()

@@ -164,7 +164,7 @@ class Qwen2VLM:
 
         # 动态追加来自 Parser 的严格 Schema 指令
         if format_instructions:
-            system_prompt += f"\n\n# 格式要求\n{format_instructions}"
+            system_prompt += f"\n\n{load_prompts()['qwen2']['format_prefix']}{format_instructions}"
 
         user_text = text if text else "无文本指令"
 

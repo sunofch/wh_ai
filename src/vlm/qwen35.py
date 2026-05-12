@@ -166,7 +166,7 @@ class Qwen35VLM:
 
         # 动态追加来自 Parser 的严格 Schema 指令
         if format_instructions:
-            system_prompt += f"\n\n# 格式要求\n**如果以下字段如果在指令和背景资料中未提及，请返回null**\n{format_instructions}"
+            system_prompt += f"\n\n{load_prompts()['qwen35']['format_prefix']}{format_instructions}"
 
         user_text = text if text else "无文本指令"
 
