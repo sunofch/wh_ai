@@ -131,7 +131,7 @@ class InstructionParser:
 
         from src.agent import run_agent
         t_start = time.time()
-        order = run_agent(text=context_text or None, image=image)
+        order = run_agent(text=context_text or None, image=image, verbose=True)
         print(f"   >> [性能] Agent 推理耗时: {time.time() - t_start:.4f} 秒")
         return order
 
@@ -271,9 +271,16 @@ def interactive_mode() -> None:
             logger.error(f"发生错误: {e}")
 
 def print_result(result: WorkOrder) -> None:
-    print("-" * 40)
-    print(json.dumps(result.model_dump(), ensure_ascii=False, indent=2))
-    print("-" * 40)
+    print("─" * 40)
+    print("【WorkOrder 摘要】")
+    for item in result.items:
+        print(f"  备件: {item.part_name or '-'}  型号: {item.model or '-'}"
+              f"  数量: {item.quantity}  类型: {item.task_type.value}")
+        if item.resolved_pick:
+            print(f"  取货位: {item.resolved_pick}  → 送货位: {item.resolved_dest}")
+    if result.metadata.get("restock_order_id"):
+        print(f"  ⚠ 补货单: {result.metadata['restock_order_id']}")
+    print("─" * 40)
 
 
 def handle_rag_status(parser: InstructionParser) -> None:

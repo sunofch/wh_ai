@@ -40,6 +40,7 @@ def _get_compiled_agent():
 def run_agent(
     text: str | None = None,
     image: str | None = None,
+    verbose: bool = False,
 ) -> WorkOrder:
     """Agent 主入口：接收原始文本/图片，返回可直接下发的 WorkOrder。"""
     agent = _get_compiled_agent()
@@ -59,7 +60,42 @@ def run_agent(
         content = [{"type": "text", "text": "无有效输入"}]
 
     result = agent.invoke({"messages": [{"role": "user", "content": content}]})
+
+    if verbose:
+        _print_agent_messages(result.get("messages", []))
+
     return _assemble_work_order(result)
+
+
+def _print_agent_messages(messages: list) -> None:
+    """将 Agent 消息链格式化输出，便于观测推理过程。"""
+    from langchain_core.messages import AIMessage, ToolMessage, HumanMessage
+    sep = "─" * 50
+    print(f"\n{'═' * 50}")
+    print("  Agent 推理过程")
+    print(f"{'═' * 50}")
+    for msg in messages:
+        if isinstance(msg, HumanMessage):
+            # 跳过用户原始输入（通常含图片 base64，太长）
+            continue
+        if isinstance(msg, AIMessage):
+            tool_calls = getattr(msg, "tool_calls", [])
+            if tool_calls:
+                print(f"\n[LLM → 调用工具]")
+                for tc in tool_calls:
+                    print(f"  工具: {tc['name']}")
+                    print(f"  参数: {json.dumps(tc['args'], ensure_ascii=False)}")
+            else:
+                print(f"\n[LLM → 最终输出]")
+                print(f"  {msg.content}")
+        elif isinstance(msg, ToolMessage):
+            print(f"\n[工具结果] {getattr(msg, 'name', '')}")
+            try:
+                parsed = json.loads(msg.content)
+                print(f"  {json.dumps(parsed, ensure_ascii=False, indent=2)}")
+            except Exception:
+                print(f"  {msg.content}")
+    print(f"{'═' * 50}\n")
 
 
 def _assemble_work_order(agent_result: dict) -> WorkOrder:
