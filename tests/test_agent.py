@@ -71,3 +71,28 @@ def test_query_inventory_insufficient():
     data = json.loads(result)
     assert data["available"] == 1
     assert data["sufficient"] is False
+
+
+def test_create_restock_order_returns_order_id():
+    from src.warehouse.models import WorkOrder, OrderItem, TaskType, OrderPriority
+    mock_order = WorkOrder(
+        order_id=1,
+        source="vlm",
+        priority=OrderPriority.NORMAL,
+        items=[OrderItem(item_id=1, task_type=TaskType.INBOUND, quantity=4)],
+    )
+    with patch("src.agent.tools.order_tool.OrderManager") as MockOM:
+        MockOM.return_value.from_port_instruction.return_value = mock_order
+
+        from src.agent.tools.order_tool import create_restock_order
+        result = create_restock_order.invoke({
+            "model": "6208-2RS-C3-SKF-Mech1",
+            "part_name": "深沟球轴承",
+            "shortage": 4,
+            "is_urgent": False,
+        })
+
+    data = json.loads(result)
+    assert data["status"] == "created"
+    assert "order_id" in data
+    assert "4" in data["message"]
