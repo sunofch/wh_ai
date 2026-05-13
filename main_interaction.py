@@ -25,6 +25,7 @@ from src.asr import get_asr_instance
 from src.vlm import get_vlm_instance, VLM_NAME
 from src.parser import PortInstructionParser, PortInstruction
 from src.common.config import config
+from src.warehouse.models import WorkOrder
 
 # 尝试导入 RAG 模块
 try:
@@ -108,61 +109,31 @@ class InstructionParser:
         audio: Optional[Union[str, bytes, np.ndarray]] = None,
         text: Optional[str] = None,
         image: Optional[Any] = None
-    ) -> PortInstruction:
+    ) -> WorkOrder:
         context_text = ""
 
-        # 1. 语音处理
         if audio is not None:
             t_asr_start = time.time()
             try:
-                # transcribe 支持路径和 numpy 数组，transcribe_bytes 处理字节数据
                 if isinstance(audio, bytes):
                     transcribed = self.asr.transcribe_bytes(audio)
                 else:
                     transcribed = self.asr.transcribe(audio)
-
-                t_asr_end = time.time()
-                print(f"   >> [性能] ASR 语音识别耗时: {t_asr_end - t_asr_start:.4f} 秒")
-
+                print(f"   >> [性能] ASR 语音识别耗时: {time.time() - t_asr_start:.4f} 秒")
                 logger.info(f"语音转录内容: {transcribed}")
                 context_text += transcribed + " "
             except Exception as e:
                 logger.error(f"ASR失败: {e}")
 
-        # 2. 文本拼接
         if text:
             context_text += text
-
         context_text = context_text.strip()
 
-        if not context_text and image is None:
-            return PortInstruction(description="无有效输入")
-
-        # 3. VLM 推理
-        if image:
-            logger.info(f"正在分析图片与指令... (文本: {context_text or '无'})")
-        else:
-            logger.info(f"正在分析指令... (文本: {context_text})")
-
-        try:
-            t_vlm_start = time.time()
-
-            format_instructions = self.parser.get_format_instructions()
-            vlm_result = self.vlm.extract_structured_info(
-                text=context_text,
-                image=image,
-                format_instructions=format_instructions
-            )
-
-            t_vlm_end = time.time()
-            print(f"   >> [性能] VLM 视觉推理耗时: {t_vlm_end - t_vlm_start:.4f} 秒")
-
-            instruction = self.parser.parse_output(vlm_result, raw_text=context_text)
-            return instruction
-
-        except Exception as e:
-            logger.error(f"解析异常: {e}")
-            return self.parser._rule_based_parse(context_text)
+        from src.agent import run_agent
+        t_start = time.time()
+        order = run_agent(text=context_text or None, image=image)
+        print(f"   >> [性能] Agent 推理耗时: {time.time() - t_start:.4f} 秒")
+        return order
 
 def create_parser() -> InstructionParser:
     """创建并初始化指令解析器实例
@@ -299,14 +270,9 @@ def interactive_mode() -> None:
             traceback.print_exc()
             logger.error(f"发生错误: {e}")
 
-def print_result(result: PortInstruction) -> None:
-    """美化输出结果
-
-    Args:
-        result: 解析后的指令结果
-    """
+def print_result(result: WorkOrder) -> None:
     print("-" * 40)
-    print(json.dumps(result.to_dict(), ensure_ascii=False, indent=2))
+    print(json.dumps(result.model_dump(), ensure_ascii=False, indent=2))
     print("-" * 40)
 
 
@@ -381,6 +347,6 @@ if __name__ == "__main__":
         parser = create_parser()
         res = parser.parse(text=args.text, image=args.image, audio=args.audio)
         # 单次运行也建议用 print_result 保持一致，但这里保持原样输出 JSON
-        print(res.to_json())
+        print(json.dumps(res.model_dump(), ensure_ascii=False))
     else:
         interactive_mode()
