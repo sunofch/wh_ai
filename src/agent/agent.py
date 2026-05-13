@@ -34,7 +34,7 @@ def _get_compiled_agent():
         extra_body={"chat_template_kwargs": {"enable_thinking": False}},
     )
     tools = [query_knowledge_base, query_inventory, create_restock_order]
-    return create_react_agent(llm, tools, state_modifier=system_prompt)
+    return create_react_agent(llm, tools, prompt=system_prompt)
 
 
 def run_agent(
