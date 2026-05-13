@@ -1,14 +1,21 @@
 import pytest
 from unittest.mock import MagicMock
 from httpx import AsyncClient, ASGITransport
-from src.parser.parser import PortInstruction
+from src.warehouse.models import WorkOrder, OrderItem, TaskType, OrderPriority
 
 
 @pytest.fixture
 def mock_parser():
-    mock_inst = PortInstruction(
-        part_name="轴承", quantity=3,
-        action_required="出库", is_urgent=False
+    mock_inst = WorkOrder(
+        order_id=1,
+        source="vlm",
+        priority=OrderPriority.NORMAL,
+        items=[OrderItem(
+            item_id=1,
+            task_type=TaskType.OUTBOUND,
+            part_name="轴承",
+            quantity=3,
+        )],
     )
     parser = MagicMock()
     parser.parse.return_value = mock_inst
