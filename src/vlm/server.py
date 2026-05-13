@@ -83,7 +83,9 @@ class VLLMServerManager:
             '--port', str(port),
             '--tensor-parallel-size', str(config.vllm_server.tensor_parallel_size),
             '--gpu-memory-utilization', str(config.vllm_server.gpu_memory_utilization),
-            '--limit-mm-per-prompt', config.vllm_server.limit_mm_per_prompt
+            '--limit-mm-per-prompt', config.vllm_server.limit_mm_per_prompt,
+            '--enable-auto-tool-choice',
+            '--tool-call-parser', 'hermes',
         ]
 
         # 可选参数
