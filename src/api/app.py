@@ -19,7 +19,6 @@ from src.api.models import (
 from src.api.queue_manager import OrderQueue
 from src.api.scheduler import scheduler_loop
 from src.warehouse.maps.base import MapRegistry
-from src.warehouse.wms.order_manager import OrderManager, _ACTION_MAP
 from src.warehouse.models import TaskType
 
 import src.warehouse.maps.medium_57x47  # noqa: F401
@@ -112,17 +111,21 @@ def _register_routes(app: FastAPI):
                     detail={"error": "invalid_base64", "field": "image_base64"}
                 )
 
-        # VLM/规则解析
-        instruction = await asyncio.to_thread(
+        # Agent 解析 → 直接返回 WorkOrder
+        order = await asyncio.to_thread(
             st.parser.parse,
             text=req.text, audio=audio, image=image,
         )
 
+        # 从 WorkOrder 首个 item 提取字段，用于库存操作和响应构建
+        _item = order.items[0] if order.items else None
+        _part_name = _item.part_name if _item else None
+        _model = _item.model if _item else None
+        _quantity = _item.quantity if _item else None
+        _task_type = _item.task_type if _item else TaskType.OUTBOUND
+
         # 全空检查
-        if all(v is None for v in [
-            instruction.part_name, instruction.model,
-            instruction.quantity, instruction.action_required,
-        ]):
+        if not order.items or not any([_part_name, _model, _quantity]):
             raise HTTPException(
                 status_code=400,
                 detail={"error": "parse_failed", "detail": "无法从输入中提取有效指令"}
@@ -135,12 +138,12 @@ def _register_routes(app: FastAPI):
         instruction_id = str(uuid4())
         if st.inv_db:
             inv_item = None
-            if instruction.model:
-                inv_item = st.inv_db.query(instruction.model)
-            if inv_item is None and instruction.part_name:
-                inv_item = st.inv_db.query_by_name(instruction.part_name)
+            if _model:
+                inv_item = st.inv_db.query(_model)
+            if inv_item is None and _part_name:
+                inv_item = st.inv_db.query_by_name(_part_name)
             if inv_item:
-                qty = instruction.quantity if instruction.quantity is not None else 1
+                qty = _quantity if _quantity is not None else 1
                 location = st.inv_db.reserve(
                     inv_item.model, qty, order_id=instruction_id
                 )
@@ -149,7 +152,7 @@ def _register_routes(app: FastAPI):
                         status_code=409,
                         detail={
                             "error": "insufficient_stock",
-                            "part_name": instruction.part_name,
+                            "part_name": _part_name,
                             "requested": qty,
                             "available": inv_item.available,
                         }
@@ -157,18 +160,13 @@ def _register_routes(app: FastAPI):
                 resolved_location = location
                 resolved_en_name  = inv_item.en_name
 
-        # 生成工单并入队
+        # 工单已由 Agent 生成，补充端口分配并入队
         map_config = MapRegistry.get("medium_57x47")
-        om = OrderManager(map_config)
-        order = om.from_port_instruction(instruction, inventory_db=None)
-
-        if order and resolved_location:
-            action = instruction.action_required or "出库"
-            task_type = _ACTION_MAP.get(action, TaskType.OUTBOUND)
+        if order and resolved_location and order.items:
             inbound_p = [n for n, c in map_config.ports.items() if c["type"] == "INBOUND"]
             outbound_p = [n for n, c in map_config.ports.items() if c["type"] == "OUTBOUND"]
             rng = random.Random()
-            if task_type == TaskType.INBOUND:
+            if _task_type == TaskType.INBOUND:
                 port = rng.choice(inbound_p) if inbound_p else ""
                 order.items[0].resolved_pick = port
                 order.items[0].resolved_dest = resolved_location
@@ -183,11 +181,17 @@ def _register_routes(app: FastAPI):
             order.metadata["order_id"] = instruction_id
             st.queue.push(order)
 
+        _action_str = "入库" if _task_type == TaskType.INBOUND else "出库"
         return InstructionResponse(
             instruction_id=instruction_id,
             status="queued",
             vlm_available=st.vlm_available,
-            parsed=ParsedInstruction(**instruction.model_dump()),
+            parsed=ParsedInstruction(
+                part_name=_part_name,
+                model=_model,
+                quantity=_quantity,
+                action_required=_action_str,
+            ),
             resolved_location=resolved_location,
             resolved_en_name=resolved_en_name,
             target_port=target_port,
