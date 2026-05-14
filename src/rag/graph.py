@@ -1,14 +1,10 @@
 """
-GraphRAG 核心模块：基于 PropertyGraphIndex 的知识图谱检索
+GraphRAG 核心模块：基于 PropertyGraphIndex + Neo4j 的知识图谱检索
 
-根据 LlamaIndex 官方文档重构：
-- 使用 PropertyGraphIndex.from_documents() 构建图
-- 使用 index.storage_context.persist() 保存索引
-- 使用 load_index_from_storage() 加载索引
-- 支持多种提取器和检索器
-
-参考文档：
-https://docs.llamaindex.org.cn/en/stable/module_guides/indexing/lpg_index_guide/
+存储后端：Neo4jPropertyGraphStore（替代原 SimplePropertyGraphStore 文件存储）
+- 图谱数据和向量索引均持久化到 Neo4j
+- 首次运行自动从知识库构建并写入 Neo4j
+- 后续启动检测到 Neo4j 有数据则直接加载，无需重建
 """
 import logging
 import time
@@ -21,9 +17,7 @@ from llama_index.core import (
     Document,
     Settings,
     StorageContext,
-    load_index_from_storage,
 )
-from llama_index.core.graph_stores import SimplePropertyGraphStore
 from llama_index.core.indices.property_graph import (
     PGRetriever,
     VectorContextRetriever,
@@ -119,58 +113,71 @@ class GraphRAGRetriever:
         self._initialized = True
         logger.info(">>> GraphRAG 模块初始化完成")
 
+    def _create_neo4j_store(self):
+        """创建 Neo4j 图谱存储实例"""
+        from llama_index.graph_stores.neo4j import Neo4jPropertyGraphStore
+        return Neo4jPropertyGraphStore(
+            username=config.neo4j.username,
+            password=config.neo4j.password,
+            url=config.neo4j.uri,
+            database=config.neo4j.database,
+        )
+
+    def _neo4j_has_data(self, graph_store) -> bool:
+        """检查 Neo4j 是否已有图谱数据"""
+        try:
+            with graph_store._driver.session(database=config.neo4j.database) as session:
+                result = session.run("MATCH (n) RETURN count(n) AS cnt LIMIT 1")
+                return result.single()["cnt"] > 0
+        except Exception as e:
+            logger.warning(f"Neo4j 数据检查失败: {e}")
+            return False
+
     def _load_or_create_graph_index(self) -> PropertyGraphIndex:
-        """加载或创建图谱索引"""
-        storage_dir = config.paths.graph_db / "storage"
+        """连接 Neo4j，有数据则直接加载，否则重新构建"""
+        graph_store = self._create_neo4j_store()
 
-        if storage_dir.exists():
-            try:
-                logger.info(f"从存储中加载图谱索引: {storage_dir}")
-                storage_context = StorageContext.from_defaults(persist_dir=str(storage_dir))
-                index = load_index_from_storage(storage_context)
-                return index
-            except Exception as e:
-                logger.warning(f"加载图谱存储失败: {e}，重新构建")
+        if self._neo4j_has_data(graph_store):
+            logger.info("从 Neo4j 加载现有图谱数据")
+            return PropertyGraphIndex.from_documents(
+                [],
+                property_graph_store=graph_store,
+            )
 
-        return self._build_graph_index()
+        return self._build_graph_index(graph_store)
 
-    def _build_graph_index(self) -> PropertyGraphIndex:
-        """从文档构建图谱索引"""
+    def _build_graph_index(self, graph_store=None) -> PropertyGraphIndex:
+        """从文档构建图谱索引并写入 Neo4j"""
         logger.info(f"正在从知识库构建图谱: {config.paths.knowledge_base}")
 
         documents = self._load_documents()
         if not documents:
             logger.warning("未找到任何知识库文档")
+            if graph_store:
+                return PropertyGraphIndex.from_documents([], property_graph_store=graph_store)
             return PropertyGraphIndex.from_documents([])
 
         logger.info(f"加载了 {len(documents)} 个文档")
 
-        # 创建节点解析器（使用 GraphRAG 专用分块配置）
         splitter = SentenceSplitter(
             chunk_size=config.graph_rag.chunk_size,
             chunk_overlap=config.graph_rag.chunk_overlap
         )
         logger.info(f"GraphRAG 分块配置: chunk_size={config.graph_rag.chunk_size}, chunk_overlap={config.graph_rag.chunk_overlap}")
 
-        # 创建提取器
         kg_extractors = create_kg_extractors(config.graph_rag, self.llm)
 
-        # 构建图谱索引
         start_time = time.time()
+        kwargs = {"property_graph_store": graph_store} if graph_store else {}
         index = PropertyGraphIndex.from_documents(
             documents,
             transformations=[splitter],
             kg_extractors=kg_extractors,
-            show_progress=True
+            show_progress=True,
+            **kwargs,
         )
         elapsed = time.time() - start_time
-        logger.info(f"图谱构建完成，耗时: {elapsed:.2f}s")
-
-        # 持久化索引
-        storage_dir = config.paths.graph_db / "storage"
-        storage_dir.mkdir(parents=True, exist_ok=True)
-        index.storage_context.persist(persist_dir=str(storage_dir))
-        logger.info(f"图谱已保存到: {storage_dir}")
+        logger.info(f"图谱构建完成，耗时: {elapsed:.2f}s（已写入 Neo4j）")
 
         return index
 
@@ -193,19 +200,17 @@ class GraphRAGRetriever:
         """初始化图检索器"""
         sub_retrievers = []
 
-        # 向量上下文检索器
+        # 向量上下文检索器（Neo4j 原生支持向量检索，无需额外 vector_store）
         if "vector" in config.graph_retrieval.sub_retrievers:
             vector_retriever = VectorContextRetriever(
                 self.index.property_graph_store,
-                #【关键修复】：必须传入 vector_store，否则会导致检索失败
-                vector_store=self.index.vector_store,
                 embed_model=self.embed_model,
-                include_text=True,
+                include_text=config.graph_retrieval.vector_include_text,
                 similarity_top_k=config.graph_retrieval.vector_top_k,
                 path_depth=config.graph_retrieval.vector_path_depth,
             )
             sub_retrievers.append(vector_retriever)
-            logger.info("向量上下文检索器已初始化")
+            logger.info("向量上下文检索器已初始化（Neo4j 向量索引）")
 
         # 同义词检索器（需要 LLM）
         if "synonym" in config.graph_retrieval.sub_retrievers and self.llm is not None:
@@ -249,6 +254,10 @@ class GraphRAGRetriever:
         # 图检索
         graph_results = self._retrieve_graph(query) if self.graph_retriever else []
 
+        # include_text=False 时做实体展开：从匹配三元组提取主语，查询其全部关系
+        if not config.graph_retrieval.vector_include_text:
+            graph_results = self._expand_from_results(graph_results)
+
         # Reranker 精排
         if config.graph_rerank.enabled and self.reranker.is_enabled():
             logger.info(f"Reranker 精排前: {len(graph_results)} 个候选")
@@ -285,6 +294,51 @@ class GraphRAGRetriever:
 
         return results
 
+    def _expand_from_results(self, results: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """从检索结果中提取主语实体，展开其全部三元组"""
+        entity_names: set = set()
+        for r in results:
+            for line in r.get('text', '').strip().split('\n'):
+                line = line.strip()
+                if ' -> ' in line:
+                    entity_names.add(line.split(' -> ')[0].strip())
+
+        if not entity_names:
+            return results
+
+        expanded = self._expand_entity_triplets(entity_names)
+        return expanded if expanded else results
+
+    def _expand_entity_triplets(self, entity_names: set) -> List[Dict[str, Any]]:
+        """查询每个实体在 Neo4j 中的全部出向三元组"""
+        results = []
+        try:
+            graph_store = self._create_neo4j_store()
+            with graph_store._driver.session(database=config.neo4j.database) as session:
+                for entity_name in entity_names:
+                    records = list(session.run(
+                        "MATCH (n)-[r]->(m) WHERE n.name = $name "
+                        "RETURN n.name AS subject, "
+                        "COALESCE(r.label, type(r)) AS relation, "
+                        "m.name AS object",
+                        name=entity_name,
+                    ))
+                    if not records:
+                        continue
+                    triplets = [
+                        f"{rec['subject']} -> {rec['relation']} -> {rec['object']}"
+                        for rec in records
+                    ]
+                    results.append({
+                        'text': '\n'.join(triplets),
+                        'score': 1.0,
+                        'metadata': {'entity': entity_name},
+                        'source': 'graph',
+                    })
+        except Exception as e:
+            logger.warning(f"实体扩展查询失败: {e}")
+        return results
+
     def _get_cache_key(self, query: str) -> str:
         """生成缓存键"""
         import hashlib
@@ -306,14 +360,17 @@ class GraphRAGRetriever:
             del self.query_cache[oldest_key]
 
     def rebuild_index(self) -> bool:
-        """重建图谱索引"""
+        """清空 Neo4j 数据后重建图谱索引"""
         if not self._initialized:
             logger.error("GraphRAG 模块未初始化，无法重建索引")
             return False
 
         try:
-            logger.info("正在重建图谱索引...")
-            self.index = self._build_graph_index()
+            logger.info("正在重建图谱索引（清空 Neo4j 后重建）...")
+            graph_store = self._create_neo4j_store()
+            with graph_store._driver.session(database=config.neo4j.database) as session:
+                session.run("MATCH (n) DETACH DELETE n")
+            self.index = self._build_graph_index(graph_store)
             self._initialize_graph_retriever()
             logger.info("图谱索引重建完成")
             return True

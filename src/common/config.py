@@ -184,6 +184,7 @@ class GraphRetrievalConfig(BaseAppConfig):
     )
     vector_top_k: int = Field(default=5, alias="GRAPH_RETRIEVAL_VECTOR_TOP_K")
     vector_path_depth: int = Field(default=1, alias="GRAPH_RETRIEVAL_VECTOR_PATH_DEPTH")
+    vector_include_text: bool = Field(default=False, alias="GRAPH_RETRIEVAL_VECTOR_INCLUDE_TEXT")
     synonym_max_keywords: int = Field(default=8, alias="GRAPH_RETRIEVAL_SYNONYM_MAX_KEYWORDS")
     synonym_path_depth: int = Field(default=1, alias="GRAPH_RETRIEVAL_SYNONYM_PATH_DEPTH")
 
@@ -199,6 +200,14 @@ class GraphPerformanceConfig(BaseAppConfig):
     """图谱性能配置"""
     query_cache_ttl: int = Field(default=3600, alias="GRAPH_QUERY_CACHE_TTL")
     cache_max_size: int = Field(default=100, alias="GRAPH_CACHE_MAX_SIZE")
+
+
+class Neo4jConfig(BaseAppConfig):
+    """Neo4j 图数据库连接配置"""
+    uri: str = Field(default="bolt://localhost:7687", alias="NEO4J_URI")
+    username: str = Field(default="neo4j", alias="NEO4J_USERNAME")
+    password: str = Field(default="password", alias="NEO4J_PASSWORD")
+    database: str = Field(default="neo4j", alias="NEO4J_DATABASE")
 
 
 class Config(BaseSettings):
@@ -227,6 +236,9 @@ class Config(BaseSettings):
 
     # GraphRAG Reranker 配置
     graph_rerank: GraphRerankConfig = GraphRerankConfig()
+
+    # Neo4j 配置
+    neo4j: Neo4jConfig = Neo4jConfig()
 
     model_config = SettingsConfigDict(
         env_file=str(Path(__file__).parent.parent.parent / ".env"),

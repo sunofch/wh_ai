@@ -31,6 +31,7 @@ def _get_compiled_agent():
         api_key="EMPTY",
         model=config.vlm35.model,
         temperature=0,
+        max_tokens=config.vlm35.max_tokens,
         extra_body={"chat_template_kwargs": {"enable_thinking": False}},
     )
     tools = [query_knowledge_base, query_inventory, create_restock_order]
