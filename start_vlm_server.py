@@ -55,6 +55,7 @@ def main():
         '--limit-mm-per-prompt', config.vllm_server.limit_mm_per_prompt,
         '--enable-auto-tool-choice',
         '--tool-call-parser', 'qwen3_xml',
+        '--enable-prefix-caching',
     ]
 
     if config.vllm_server.max_model_len:

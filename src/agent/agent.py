@@ -11,7 +11,7 @@ from langgraph.prebuilt import create_react_agent
 
 from src.agent.tools.knowledge_tool import query_knowledge_base
 from src.agent.tools.inventory_tool import query_inventory
-from src.agent.tools.order_tool import create_restock_order
+from src.agent.tools.order_tool import create_restock
 from src.common.config import config
 from src.common.prompts import load_prompts
 from src.warehouse.models import WorkOrder
@@ -34,7 +34,7 @@ def _get_compiled_agent():
         max_tokens=config.vlm35.max_tokens,
         extra_body={"chat_template_kwargs": {"enable_thinking": False}},
     )
-    tools = [query_knowledge_base, query_inventory, create_restock_order]
+    tools = [query_knowledge_base, query_inventory]
     return create_react_agent(llm, tools, prompt=system_prompt)
 
 
@@ -101,18 +101,18 @@ def _print_agent_messages(messages: list) -> None:
 
 def _assemble_work_order(agent_result: dict) -> WorkOrder:
     """从 Agent 返回的消息列表中提取字段和工具结果，组装 WorkOrder。"""
+    from langchain_core.messages import ToolMessage
+
     messages = agent_result.get("messages", [])
     final_text = messages[-1].content if messages else ""
 
     instruction = _parse_instruction(final_text)
 
-    tool_results: list[dict] = []
+    inventory_result: dict | None = None
     for msg in messages:
-        if hasattr(msg, "content") and msg.content:
+        if isinstance(msg, ToolMessage) and getattr(msg, "name", "") == "query_inventory":
             try:
-                parsed = json.loads(msg.content)
-                if isinstance(parsed, dict):
-                    tool_results.append(parsed)
+                inventory_result = json.loads(msg.content)
             except (json.JSONDecodeError, TypeError):
                 pass
 
@@ -125,12 +125,17 @@ def _assemble_work_order(agent_result: dict) -> WorkOrder:
         from src.warehouse.models import OrderPriority
         order = WorkOrder(order_id=0, source="vlm", priority=OrderPriority.NORMAL)
 
-    restock = next(
-        (r for r in tool_results
-         if r.get("status") == "created" and r.get("order_id")),
-        None,
-    )
-    if restock:
+    if (instruction is not None
+            and instruction.action_required == "出库"
+            and inventory_result is not None
+            and not inventory_result.get("sufficient", True)
+            and inventory_result.get("shortage", 0) > 0):
+        restock = create_restock(
+            model=instruction.model or "",
+            part_name=instruction.part_name or "",
+            shortage=inventory_result["shortage"],
+            is_urgent=instruction.is_urgent,
+        )
         order.metadata["restock_order_id"] = restock["order_id"]
 
     return order

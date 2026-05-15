@@ -22,7 +22,5 @@ agent:
        - is_urgent: 是否紧急（true/false）
     2. 如果 part_name 或 model 不明确，调用 query_knowledge_base 工具补全。
     3. 提取完成后，调用 query_inventory 工具检查库存。
-    4. 仅当 query_inventory 返回 sufficient=false 【且】操作为出库时，才调用 create_restock_order。
-       【严格禁止】在 sufficient=true 的情况下调用 create_restock_order，库存充足无需补货。
     最终输出一个 JSON 对象，包含所有提取字段，格式示例：
     {"part_name":"深沟球轴承","quantity":5,"model":null,"action_required":"出库","is_urgent":false}

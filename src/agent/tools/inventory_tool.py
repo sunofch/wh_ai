@@ -24,11 +24,13 @@ def query_inventory(model: str, part_name: str, quantity: int) -> str:
         )
 
     available = item.quantity - item.reserved
+    sufficient = available >= quantity
     return json.dumps(
         {
             "available": available,
             "location": item.location,
-            "sufficient": available >= quantity,
+            "sufficient": sufficient,
+            "shortage": 0 if sufficient else quantity - available,
         },
         ensure_ascii=False,
     )
