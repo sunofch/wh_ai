@@ -1,12 +1,12 @@
 import json
-from unittest.mock import patch, MagicMock, PropertyMock
+from unittest.mock import patch, MagicMock
 
 
 def test_query_knowledge_base_returns_json():
     mock_results = ["深沟球轴承用于高速旋转场景", "型号6208-2RS常用于港口设备"]
     mock_manager = MagicMock()
-    mock_manager.retrieve.return_value = [MagicMock(get_content=lambda: r) for r in mock_results]
-    mock_manager.format_context.return_value = "\n".join(mock_results)
+    mock_manager.retrieve.return_value = [{"text": r} for r in mock_results]
+    mock_manager.mode = "traditional"
 
     with patch("src.agent.tools.knowledge_tool.get_unified_rag_manager", return_value=mock_manager):
         from src.agent.tools.knowledge_tool import query_knowledge_base
@@ -29,10 +29,11 @@ def test_query_inventory_sufficient():
         location="Mech1_R1_B1",
         zone="Mech1",
     )
-    with patch("src.agent.tools.inventory_tool.StockManager") as MockDB:
-        MockDB.return_value.query.return_value = mock_item
-        MockDB.return_value.query_by_name.return_value = None
+    mock_db = MagicMock()
+    mock_db.query.return_value = mock_item
+    mock_db.query_by_name.return_value = None
 
+    with patch("src.agent.tools.inventory_tool._get_stock_manager", return_value=mock_db):
         from src.agent.tools.inventory_tool import query_inventory
         result = query_inventory.invoke({
             "model": "6208-2RS-C3-SKF-Mech1",
@@ -57,10 +58,11 @@ def test_query_inventory_insufficient():
         location="Mech1_R1_B1",
         zone="Mech1",
     )
-    with patch("src.agent.tools.inventory_tool.StockManager") as MockDB:
-        MockDB.return_value.query.return_value = mock_item
-        MockDB.return_value.query_by_name.return_value = None
+    mock_db = MagicMock()
+    mock_db.query.return_value = mock_item
+    mock_db.query_by_name.return_value = None
 
+    with patch("src.agent.tools.inventory_tool._get_stock_manager", return_value=mock_db):
         from src.agent.tools.inventory_tool import query_inventory
         result = query_inventory.invoke({
             "model": "6208-2RS-C3-SKF-Mech1",
@@ -73,41 +75,49 @@ def test_query_inventory_insufficient():
     assert data["sufficient"] is False
 
 
-def test_create_restock_order_returns_order_id():
-    from src.warehouse.models import WorkOrder, OrderItem, TaskType, OrderPriority
-    mock_order = WorkOrder(
-        order_id=1,
-        source="vlm",
-        priority=OrderPriority.NORMAL,
-        items=[OrderItem(item_id=1, task_type=TaskType.INBOUND, quantity=4)],
-    )
-    with patch("src.agent.tools.order_tool.OrderManager") as MockOM:
-        MockOM.return_value.from_port_instruction.return_value = mock_order
+def test_create_restock_returns_order_id():
+    """create_restock 是普通函数，直接调用并断言返回结构。"""
+    mock_map_cfg = MagicMock()
 
-        from src.agent.tools.order_tool import create_restock_order
-        result = create_restock_order.invoke({
-            "model": "6208-2RS-C3-SKF-Mech1",
-            "part_name": "深沟球轴承",
-            "shortage": 4,
-            "is_urgent": False,
-        })
+    with patch("src.agent.tools.order_tool.MapRegistry") as MockRegistry, \
+         patch("src.agent.tools.order_tool.OrderManager") as MockOM:
+        MockRegistry.get.return_value = mock_map_cfg
+        MockOM.return_value.from_port_instruction.return_value = MagicMock()
 
-    data = json.loads(result)
-    assert data["status"] == "created"
-    assert "order_id" in data
-    assert "4" in data["message"]
+        from src.agent.tools.order_tool import create_restock
+        result = create_restock(
+            model="6208-2RS-C3-SKF-Mech1",
+            part_name="深沟球轴承",
+            shortage=4,
+            is_urgent=False,
+        )
+
+    assert result["status"] == "created"
+    assert "order_id" in result
+    assert result["order_id"].startswith("RS-")
+    assert "4" in result["message"]
 
 
 # ── Agent 三条路径测试 ────────────────────────────────────────────────────────
 
-def _make_agent_response(fields: dict, tool_calls_log: list | None = None):
-    """构造 Agent invoke() 返回的 messages 结构。"""
+def _make_agent_response(
+    fields: dict,
+    tool_calls_log: list | None = None,
+    named_tools: list[tuple[str, str]] | None = None,
+):
+    """构造 Agent invoke() 返回的 messages 结构。
+
+    tool_calls_log: content 字符串列表，name 固定为 "mock"
+    named_tools: (name, content) 元组列表，用于指定特定工具名的 ToolMessage
+    """
     from langchain_core.messages import AIMessage, ToolMessage
     import json as _json
 
     msgs = []
     for tc in (tool_calls_log or []):
         msgs.append(ToolMessage(content=tc, tool_call_id="mock", name="mock"))
+    for tool_name, content in (named_tools or []):
+        msgs.append(ToolMessage(content=content, tool_call_id=tool_name, name=tool_name))
     msgs.append(AIMessage(content=_json.dumps(fields, ensure_ascii=False)))
     return {"messages": msgs}
 
@@ -194,21 +204,26 @@ def test_run_agent_insufficient_inventory_creates_restock():
         order_id=1, source="vlm", priority=OrderPriority.NORMAL,
         items=[OrderItem(item_id=1, task_type=TaskType.OUTBOUND, quantity=5)],
     )
-    restock_tool_result = json.dumps({
-        "order_id": "RS-ABCD1234", "status": "created", "message": "缺口数量: 3"
+    inventory_tool_result = json.dumps({
+        "available": 2, "location": "Mech1_R1_B1", "sufficient": False, "shortage": 3,
     })
     agent_resp = _make_agent_response(
         {"part_name": "深沟球轴承", "quantity": 5,
          "model": "6208-Mech1", "action_required": "出库", "is_urgent": False},
-        tool_calls_log=[restock_tool_result],
+        named_tools=[("query_inventory", inventory_tool_result)],
     )
 
     with patch("src.agent.agent._get_compiled_agent") as mock_ag, \
          patch("src.agent.agent.StockManager") as MockDB, \
-         patch("src.agent.agent.OrderManager") as MockOM:
+         patch("src.agent.agent.OrderManager") as MockOM, \
+         patch("src.agent.agent.create_restock") as mock_restock:
         mock_ag.return_value.invoke.return_value = agent_resp
         MockDB.return_value.query.return_value = mock_item
         MockOM.return_value.from_port_instruction.return_value = mock_order
+        mock_restock.return_value = {
+            "order_id": "RS-ABCD1234", "status": "created",
+            "message": "已生成补货入库订单，缺口数量: 3",
+        }
 
         from src.agent.agent import run_agent
         order = run_agent(text="需要5个深沟球轴承出库")

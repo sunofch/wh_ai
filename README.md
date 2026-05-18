@@ -497,7 +497,7 @@ src/api/
 ### 1. 环境要求
 
 - Python 3.10+
-- PyTorch 2.10+（支持CUDA 12.8）
+- PyTorch 2.10.0（CUDA 12.8）
 - FFmpeg（音频处理）
 - **Neo4j 5.x + APOC 插件**（GraphRAG 模式必需，安装见 `docs/neo4j_setup.md` / [NEO4J.md](NEO4J.md)）
 - 可选：sounddevice（实时录音）
@@ -512,7 +512,7 @@ cd wh_ai
 pip install -r requirements.txt
 
 # 安装PyTorch（推荐CUDA 12.8）
-pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu128
+pip install torch==2.10.0 torchvision==0.25.0 torchaudio==2.10.0 --index-url https://download.pytorch.org/whl/cu128
 
 # 安装FFmpeg（Linux）
 sudo apt-get install ffmpeg
