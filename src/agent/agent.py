@@ -6,7 +6,6 @@ import re
 from functools import lru_cache
 from typing import Any
 
-from src.agent.tools.order_tool import create_restock
 from src.warehouse.models import WorkOrder
 from src.warehouse.wms.inventory_db import StockManager
 from src.warehouse.wms.order_manager import OrderManager
@@ -99,14 +98,6 @@ def _assemble_work_order(agent_result: dict) -> WorkOrder:
             if instruction is not None:
                 break
 
-    inventory_result: dict | None = None
-    for msg in messages:
-        if isinstance(msg, ToolMessage) and getattr(msg, "name", "") == "query_inventory":
-            try:
-                inventory_result = json.loads(msg.content)
-            except (json.JSONDecodeError, TypeError):
-                pass
-
     map_cfg = MapRegistry.get("medium_57x47")
     db = StockManager()
     om = OrderManager(map_cfg)
@@ -116,18 +107,15 @@ def _assemble_work_order(agent_result: dict) -> WorkOrder:
         from src.warehouse.models import OrderPriority
         order = WorkOrder(order_id=0, source="vlm", priority=OrderPriority.NORMAL)
 
-    if (instruction is not None
-            and instruction.action_required == "出库"
-            and inventory_result is not None
-            and not inventory_result.get("sufficient", True)
-            and inventory_result.get("shortage", 0) > 0):
-        restock = create_restock(
-            model=instruction.model or "",
-            part_name=instruction.part_name or "",
-            shortage=inventory_result["shortage"],
-            is_urgent=instruction.is_urgent,
-        )
-        order.metadata["restock_order_id"] = restock["order_id"]
+    # 从 inventory_agent 的工具调用结果中提取补货单号
+    for msg in messages:
+        if isinstance(msg, ToolMessage) and getattr(msg, "name", "") == "create_restock_order":
+            try:
+                restock_data = json.loads(msg.content)
+                if restock_data.get("order_id"):
+                    order.metadata["restock_order_id"] = restock_data["order_id"]
+            except (json.JSONDecodeError, TypeError):
+                pass
 
     return order
 

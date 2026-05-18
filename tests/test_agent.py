@@ -191,8 +191,10 @@ def test_run_agent_missing_part_name_calls_kb():
     assert order.items[0].quantity == 3
 
 
-def test_run_agent_insufficient_inventory_creates_restock():
-    """路径3：库存不足（出库）→ metadata 含 restock_order_id"""
+def test_run_agent_insufficient_inventory_no_restock():
+    """路径3：库存不足（出库）→ run_agent 直接调用不再触发补货。
+    补货现在由 inventory_agent 负责（需经 Supervisor 路由）。
+    """
     from src.warehouse.models import InventoryItem, WorkOrder, OrderItem, TaskType, OrderPriority
 
     mock_item = InventoryItem(
@@ -204,29 +206,20 @@ def test_run_agent_insufficient_inventory_creates_restock():
         order_id=1, source="vlm", priority=OrderPriority.NORMAL,
         items=[OrderItem(item_id=1, task_type=TaskType.OUTBOUND, quantity=5)],
     )
-    inventory_tool_result = json.dumps({
-        "available": 2, "location": "Mech1_R1_B1", "sufficient": False, "shortage": 3,
-    })
     agent_resp = _make_agent_response(
         {"part_name": "深沟球轴承", "quantity": 5,
          "model": "6208-Mech1", "action_required": "出库", "is_urgent": False},
-        named_tools=[("query_inventory", inventory_tool_result)],
     )
 
     with patch("src.agent.agent._get_compiled_agent") as mock_ag, \
          patch("src.agent.agent.StockManager") as MockDB, \
-         patch("src.agent.agent.OrderManager") as MockOM, \
-         patch("src.agent.agent.create_restock") as mock_restock:
+         patch("src.agent.agent.OrderManager") as MockOM:
         mock_ag.return_value.invoke.return_value = agent_resp
         MockDB.return_value.query.return_value = mock_item
         MockOM.return_value.from_port_instruction.return_value = mock_order
-        mock_restock.return_value = {
-            "order_id": "RS-ABCD1234", "status": "created",
-            "message": "已生成补货入库订单，缺口数量: 3",
-        }
 
         from src.agent.agent import run_agent
         order = run_agent(text="需要5个深沟球轴承出库")
 
     assert isinstance(order, WorkOrder)
-    assert order.metadata.get("restock_order_id") == "RS-ABCD1234"
+    assert "restock_order_id" not in order.metadata

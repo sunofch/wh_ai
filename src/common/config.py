@@ -49,6 +49,12 @@ class SupervisorConfig(BaseAppConfig):
     max_tokens: int = Field(default=512, alias="SUPERVISOR_MAX_TOKENS")
 
 
+class InventoryAgentConfig(BaseAppConfig):
+    """Agent 2：库存管理 Agent 模型配置"""
+    model: str = Field(default="Qwen/Qwen3.5-4B", alias="INVENTORY_AGENT_MODEL")
+    max_tokens: int = Field(default=2048, alias="INVENTORY_AGENT_MAX_TOKENS")
+
+
 class VLMSelectorConfig(BaseAppConfig):
     """VLM 模型选择配置"""
     model_type: str = Field(default="qwen2", alias="VLM_MODEL_TYPE")
@@ -225,6 +231,7 @@ class Config(BaseSettings):
     vlm_selector: VLMSelectorConfig = VLMSelectorConfig()
     vllm_server: VLLMServerConfig = VLLMServerConfig()
     supervisor: SupervisorConfig = SupervisorConfig()
+    inventory_agent: InventoryAgentConfig = InventoryAgentConfig()
     parser: ParserConfig = ParserConfig()
 
     # 路径配置
