@@ -33,9 +33,9 @@ def _get_supervisor_llm() -> ChatOpenAI:
     return ChatOpenAI(
         base_url=f"http://{host}:{port}/v1",
         api_key="EMPTY",
-        model=config.vlm35.model,
+        model=config.supervisor.model,
         temperature=0,
-        max_tokens=512,
+        max_tokens=config.supervisor.max_tokens,
         extra_body={"chat_template_kwargs": {"enable_thinking": False}},
     )
 

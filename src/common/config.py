@@ -43,6 +43,12 @@ class VLM35Config(BaseAppConfig):
     max_tokens: int = Field(default=4096, alias="VLM35_MAX_TOKENS")
 
 
+class SupervisorConfig(BaseAppConfig):
+    """Supervisor / Router Agent 模型配置"""
+    model: str = Field(default="Qwen/Qwen3.5-4B", alias="SUPERVISOR_MODEL")
+    max_tokens: int = Field(default=512, alias="SUPERVISOR_MAX_TOKENS")
+
+
 class VLMSelectorConfig(BaseAppConfig):
     """VLM 模型选择配置"""
     model_type: str = Field(default="qwen2", alias="VLM_MODEL_TYPE")
@@ -218,6 +224,7 @@ class Config(BaseSettings):
     vlm35: VLM35Config = VLM35Config()
     vlm_selector: VLMSelectorConfig = VLMSelectorConfig()
     vllm_server: VLLMServerConfig = VLLMServerConfig()
+    supervisor: SupervisorConfig = SupervisorConfig()
     parser: ParserConfig = ParserConfig()
 
     # 路径配置
