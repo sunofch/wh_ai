@@ -6,14 +6,7 @@ import re
 from functools import lru_cache
 from typing import Any
 
-from langchain_openai import ChatOpenAI
-from langgraph.prebuilt import create_react_agent
-
-from src.agent.tools.knowledge_tool import query_knowledge_base
-from src.agent.tools.inventory_tool import query_inventory
 from src.agent.tools.order_tool import create_restock
-from src.common.config import config
-from src.common.prompts import load_prompts
 from src.warehouse.models import WorkOrder
 from src.warehouse.wms.inventory_db import StockManager
 from src.warehouse.wms.order_manager import OrderManager
@@ -23,19 +16,8 @@ import src.warehouse.maps.medium_57x47  # noqa: F401
 
 @lru_cache(maxsize=1)
 def _get_compiled_agent():
-    system_prompt = load_prompts()["agent"]["system"]
-    port = config.vllm_server.base_port + 1
-    host = config.vllm_server.host
-    llm = ChatOpenAI(
-        base_url=f"http://{host}:{port}/v1",
-        api_key="EMPTY",
-        model=config.vlm35.model,
-        temperature=0,
-        max_tokens=config.vlm35.max_tokens,
-        extra_body={"chat_template_kwargs": {"enable_thinking": False}},
-    )
-    tools = [query_knowledge_base, query_inventory]
-    return create_react_agent(llm, tools, prompt=system_prompt)
+    from src.agents.instruction_agent import get_instruction_agent
+    return get_instruction_agent()
 
 
 def run_agent(
@@ -100,13 +82,22 @@ def _print_agent_messages(messages: list) -> None:
 
 
 def _assemble_work_order(agent_result: dict) -> WorkOrder:
-    """从 Agent 返回的消息列表中提取字段和工具结果，组装 WorkOrder。"""
-    from langchain_core.messages import ToolMessage
+    """从 Agent 返回的消息列表中提取字段和工具结果，组装 WorkOrder。
+
+    向后扫描 AIMessage，找到最后一条含可解析 PortInstruction 的消息。
+    兼容单 ReAct Agent 和 Supervisor 两种调用场景。
+    """
+    from langchain_core.messages import AIMessage, ToolMessage
 
     messages = agent_result.get("messages", [])
-    final_text = messages[-1].content if messages else ""
 
-    instruction = _parse_instruction(final_text)
+    instruction = None
+    for msg in reversed(messages):
+        if isinstance(msg, AIMessage) and msg.content:
+            text = msg.content if isinstance(msg.content, str) else ""
+            instruction = _parse_instruction(text)
+            if instruction is not None:
+                break
 
     inventory_result: dict | None = None
     for msg in messages:

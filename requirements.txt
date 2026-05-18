@@ -44,8 +44,9 @@ matplotlib==3.10.9
 fastapi==0.135.2
 uvicorn[standard]==0.42.0
 
-# ReAct Agent
+# ReAct Agent + Multi-Agent
 langgraph==1.1.3
+langgraph-supervisor==0.0.27
 langchain-openai==1.2.1
 
 # 测试
