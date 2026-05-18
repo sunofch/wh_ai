@@ -16,16 +16,17 @@ from langgraph_supervisor import create_supervisor
 
 from src.agents.instruction_agent import get_instruction_agent
 from src.agents.inventory_agent import get_inventory_agent
+from src.agents.agv_agent import get_agv_agent
 from src.common.config import config
 
 _SUPERVISOR_PROMPT = """你是港口备件仓储系统的智能调度员。
 
 根据用户请求，按以下规则路由：
-- 领料、出库、入库、需要备件、零件申请、解析指令 → 先调用 instruction_agent 解析，再调用 inventory_agent 处理库存
+- 领料、出库、入库、需要备件、零件申请、解析指令 → 依次调用：instruction_agent 解析 → inventory_agent 处理库存 → agv_agent 调度 AGV
 - 仅查询库存数量/位置，不涉及工单 → 直接调用 inventory_agent
 - 补货、创建工单、库存操作 → 直接调用 inventory_agent
 
-注意：涉及出库/入库的完整流程必须先经过 instruction_agent 解析，再由 inventory_agent 执行库存操作。
+严格按顺序执行，不得跳过任何步骤，不得向用户询问确认，完成所有步骤后再输出最终结果。
 """
 
 
@@ -47,9 +48,10 @@ def _get_supervisor_llm() -> ChatOpenAI:
 def get_supervisor():
     """返回编译好的 Supervisor 多 Agent 图。"""
     builder = create_supervisor(
-        agents=[get_instruction_agent(), get_inventory_agent()],
+        agents=[get_instruction_agent(), get_inventory_agent(), get_agv_agent()],
         model=_get_supervisor_llm(),
         prompt=_SUPERVISOR_PROMPT,
+        output_mode="last_message",
     )
     return builder.compile()
 

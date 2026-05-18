@@ -83,16 +83,50 @@ def _print_agent_messages(messages: list) -> None:
 def _assemble_work_order(agent_result: dict) -> WorkOrder:
     """从 Agent 返回的消息列表中提取字段和工具结果，组装 WorkOrder。
 
-    向后扫描 AIMessage，找到最后一条含可解析 PortInstruction 的消息。
-    兼容单 ReAct Agent 和 Supervisor 两种调用场景。
+    优先从 create_work_order 的 ToolMessage 直接重建，避免重复建单。
+    Fallback：按 message name 精准定位 instruction_agent 的输出。
     """
     from langchain_core.messages import AIMessage, ToolMessage
+    from src.warehouse.models import OrderItem, OrderPriority, TaskType
 
     messages = agent_result.get("messages", [])
 
+    # 优先路径：直接读 inventory_agent 已创建的工单结果
+    for msg in messages:
+        if isinstance(msg, ToolMessage) and getattr(msg, "name", "") == "create_work_order":
+            try:
+                data = json.loads(msg.content)
+                if data.get("status") == "created":
+                    items = [
+                        OrderItem(
+                            item_id=i + 1,
+                            task_type=TaskType(item["task_type"]),
+                            model=item.get("model", ""),
+                            part_name=item.get("part_name", ""),
+                            quantity=item.get("quantity", 1),
+                            resolved_pick=item.get("pick", ""),
+                            resolved_dest=item.get("dest", ""),
+                        )
+                        for i, item in enumerate(data.get("items", []))
+                    ]
+                    order = WorkOrder(
+                        order_id=data.get("order_id", 0),
+                        source="vlm",
+                        priority=OrderPriority(data.get("priority", OrderPriority.NORMAL.value)),
+                        items=items,
+                    )
+                    _attach_restock(order, messages)
+                    return order
+            except (json.JSONDecodeError, TypeError, KeyError, ValueError):
+                pass
+
+    # Fallback：按 name 精准找 instruction_agent 最终输出，再建单
     instruction = None
     for msg in reversed(messages):
-        if isinstance(msg, AIMessage) and msg.content:
+        if (isinstance(msg, AIMessage)
+                and getattr(msg, "name", "") == "instruction_agent"
+                and msg.content
+                and not getattr(msg, "tool_calls", [])):
             text = msg.content if isinstance(msg.content, str) else ""
             instruction = _parse_instruction(text)
             if instruction is not None:
@@ -104,10 +138,16 @@ def _assemble_work_order(agent_result: dict) -> WorkOrder:
     order = om.from_port_instruction(instruction, inventory_db=db)
 
     if order is None:
-        from src.warehouse.models import OrderPriority
         order = WorkOrder(order_id=0, source="vlm", priority=OrderPriority.NORMAL)
 
-    # 从 inventory_agent 的工具调用结果中提取补货单号
+    _attach_restock(order, messages)
+    return order
+
+
+def _attach_restock(order: WorkOrder, messages: list) -> None:
+    """将 create_restock_order 的结果附加到工单 metadata。"""
+    from langchain_core.messages import ToolMessage
+
     for msg in messages:
         if isinstance(msg, ToolMessage) and getattr(msg, "name", "") == "create_restock_order":
             try:
@@ -116,8 +156,6 @@ def _assemble_work_order(agent_result: dict) -> WorkOrder:
                     order.metadata["restock_order_id"] = restock_data["order_id"]
             except (json.JSONDecodeError, TypeError):
                 pass
-
-    return order
 
 
 def _parse_instruction(text: str):
@@ -128,10 +166,9 @@ def _parse_instruction(text: str):
         match = re.search(r"\{.*\}", text, re.DOTALL)
         if match:
             data = json.loads(match.group())
-            return PortInstruction(**{
-                k: v for k, v in data.items()
-                if k in PortInstruction.model_fields
-            })
+            filtered = {k: v for k, v in data.items() if k in PortInstruction.model_fields}
+            if filtered:
+                return PortInstruction(**filtered)
     except Exception:
         pass
 

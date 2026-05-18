@@ -11,7 +11,6 @@ from langchain_openai import ChatOpenAI
 from langgraph.prebuilt import create_react_agent
 
 from src.agent.tools.knowledge_tool import query_knowledge_base
-from src.agent.tools.inventory_tool import query_inventory
 from src.common.config import config
 from src.common.prompts import load_prompts
 
@@ -32,7 +31,7 @@ def get_instruction_agent():
         max_tokens=config.vlm35.max_tokens,
         extra_body={"chat_template_kwargs": {"enable_thinking": False}},
     )
-    tools = [query_knowledge_base, query_inventory]
+    tools = [query_knowledge_base]
     return create_react_agent(
         llm,
         tools,

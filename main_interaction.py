@@ -129,9 +129,9 @@ class InstructionParser:
             context_text += text
         context_text = context_text.strip()
 
-        from src.agent import run_agent
+        from src.agents.supervisor import run as supervisor_run
         t_start = time.time()
-        order = run_agent(text=context_text or None, image=image, verbose=True)
+        order = supervisor_run(text=context_text or None, image=image, verbose=True)
         print(f"   >> [性能] Agent 推理耗时: {time.time() - t_start:.4f} 秒")
         return order
 

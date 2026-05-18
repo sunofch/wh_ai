@@ -25,12 +25,13 @@ _SYSTEM_PROMPT = """你是港口备件仓储系统的库存管理专家。
 2. 调用 create_work_order 创建对应的出库或入库工单
 3. 如果 query_inventory 返回 sufficient=false，额外调用 create_restock_order 创建补货单
 
-最终以 JSON 格式返回结果：
+最终以 JSON 格式返回结果（必须包含完整工单数据供后续 AGV 调度使用）：
 {
   "work_order_status": "created" | "failed",
+  "work_order": <create_work_order 返回的完整 JSON 对象>,
   "restock_order_id": "RS-XXXX"
 }
-restock_order_id 仅在库存不足时包含。
+restock_order_id 仅在库存不足时包含，work_order 字段始终包含。
 """
 
 

@@ -63,9 +63,12 @@ def create_work_order(
         {
             "status": "created",
             "order_id": order.order_id,
+            "priority": order.priority.value,
             "items": [
                 {
                     "task_type": i.task_type.value,
+                    "model": i.model,
+                    "part_name": i.part_name,
                     "quantity": i.quantity,
                     "pick": i.resolved_pick,
                     "dest": i.resolved_dest,
