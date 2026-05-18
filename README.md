@@ -1,35 +1,41 @@
-# wh_graphrag_re - All-in-VLM 多模态AI港口指令解析系统
+# wh_graphrag_re - ReAct Agent 多模态AI港口指令解析与AGV调度系统
 
-基于 Python 的多模态AI系统，集成了语音识别、视觉语言模型、结构化解析、RAG知识检索和AGV仓储调度，专门用于港口/海事领域的智能化作业。
+基于 Python 的多模态AI系统，集成了语音识别、ReAct 智能体、视觉语言模型、RAG知识检索（Neo4j 图谱）和AGV仓储调度，专门用于港口/海事领域的智能化作业。
 
 ## 项目特色
 
-- **All-in-VLM架构**：单一VLM模型处理多模态输入+RAG增强
-- **vLLM高性能推理**：PagedAttention优化，推理速度提升30-50%
-- **双模式RAG**：传统向量检索 + GraphRAG知识图谱
+- **ReAct Agent 架构**：基于 LangGraph `create_react_agent`，自主调用知识库检索与库存查询工具，端到端输出可下发工单
+- **vLLM 工具调用推理**：PagedAttention + prefix caching，`qwen3_xml` tool-call 解析器支持原生 function calling
+- **双模式RAG**：传统向量检索 + GraphRAG 知识图谱（Neo4j 持久化 + 实体三元组展开）
 - **AGV仓储调度**：四层调度架构（WMS→WES→Fleet→Simulation），含聚类、TSP、Regret-2全局优化
-- **REST API服务**：FastAPI事件驱动调度接口，支持VLM解析→库存预留→AGV入队全链路
+- **REST API服务**：FastAPI事件驱动调度接口，支持 Agent 解析→库存预留→AGV入队全链路
 - **多模态输入**：音频、文本、图像统一处理
-- **结构化输出**：Pydantic模型确保输出质量
+- **结构化输出**：Pydantic `WorkOrder` 模型，库存不足自动生成补货单
 
 ---
 
-## 系统一：港口指令解析
+## 系统一：ReAct Agent 港口指令解析
+
+港口指令解析由 **LangGraph ReAct Agent** 驱动（`src/agent/`）。Agent 接收多模态输入，自主决定是否调用工具补全信息，最终组装成可直接下发的 `WorkOrder`。
 
 ### 多模态输入支持
-- **音频输入**：支持实时录音（5秒）和音频文件（WAV、MP3、M4A、FLAC、OGG）
+- **音频输入**：支持实时录音（5秒）和音频文件（WAV、MP3、M4A、FLAC、OGG），经 Whisper 转写后送入 Agent
 - **文本输入**：直接输入文本指令或文本文件
-- **图像输入**：支持图片分析（JPG、PNG、BMP、WebP）
+- **图像输入**：支持图片分析（JPG、PNG、BMP、WebP），以 base64 image_url 传给 VLM
 
-### 智能解析引擎
-- **ASR语音识别**：基于OpenAI Whisper large-v3-turbo，支持中文
-- **VLM视觉理解**：支持Qwen2-VL和Qwen3.5-VL两种模型，可动态切换
-- **vLLM高性能推理**：使用vLLM引擎，PagedAttention优化推理速度
-- **结构化输出**：解析为标准化的港口指令格式（Pydantic模型）
+### Agent 工具集
+
+| 工具 | 文件 | 触发时机 | 作用 |
+|------|------|----------|------|
+| `query_knowledge_base` | `tools/knowledge_tool.py` | 备件名称/型号不明确时由 LLM 调用 | 从 RAG 知识库检索补全（traditional 或 graph 模式自动初始化） |
+| `query_inventory` | `tools/inventory_tool.py` | 字段提取完成后由 LLM 调用 | 查询 SQLite 库存，返回可用量/储位/缺口 |
+| `create_restock` | `tools/order_tool.py` | 出库且库存不足时由**代码**调用（非 LLM） | 自动生成补货入库订单，order_id 写入 `WorkOrder.metadata` |
+
+> Agent LLM 通过 `ChatOpenAI` 指向 vLLM 的 OpenAI 兼容端点（`base_port + 1`，即 Qwen3.5），`temperature=0`、关闭 thinking。系统提示见 `config/prompts.yaml` 的 `agent.system`。
 
 ### RAG知识增强
 - **传统RAG**：基于BGE-M3向量和BM25混合检索
-- **GraphRAG**：知识图谱关系推理，支持多跳检索
+- **GraphRAG**：基于 LlamaIndex `PropertyGraphIndex` + **Neo4j** 持久化，支持向量+同义词子检索与实体三元组展开
 - **重排序**：使用BGE-reranker-v2-m3优化结果
 
 ### 数据流
@@ -37,9 +43,11 @@
 ```
 输入 (Audio/Text/Image)
   → ASR (Whisper) → Text
-  → RAG 检索上下文 (Traditional 或 Graph 模式)
-  → VLM (Qwen2-VL / Qwen3.5-VL + vLLM) → 结构化 JSON
-  → Parser (Pydantic 验证) → PortInstruction
+  → ReAct Agent (LangGraph, vLLM Qwen3.5)
+       ├─ query_knowledge_base  (RAG: Traditional / Neo4j Graph)
+       └─ query_inventory       (SQLite 库存)
+  → 解析最终 JSON → PortInstruction → OrderManager
+  → WorkOrder（出库缺货时附带 create_restock 补货单）
 ```
 
 ---
@@ -157,9 +165,9 @@ FastAPI服务，提供从港口指令解析到AGV调度的完整链路。
 
 ```
 POST /instructions (文本/音频/图像)
-  → VLM/规则解析 → PortInstruction
+  → ReAct Agent 解析（vLLM 未运行时降级为规则解析）→ WorkOrder
   → 库存查询 + reserve(预留)
-  → 工单入队 (OrderQueue)
+  → 端口分配 + 工单入队 (OrderQueue)
   → 调度触发 (事件驱动: 满10条 OR 30秒超时 OR URGENT)
   → run_pipeline (TaskDecomposer → Clusterer → Fleet → Simulator)
   → 成功 confirm / 失败 release 库存预留
@@ -491,6 +499,7 @@ src/api/
 - Python 3.10+
 - PyTorch 2.10+（支持CUDA 12.8）
 - FFmpeg（音频处理）
+- **Neo4j 5.x + APOC 插件**（GraphRAG 模式必需，安装见 `docs/neo4j_setup.md` / [NEO4J.md](NEO4J.md)）
 - 可选：sounddevice（实时录音）
 
 ### 2. 安装依赖
@@ -519,11 +528,17 @@ cp .env.example .env
 ### 4. 运行
 
 ```bash
-# 港口指令解析（需先启动vLLM服务器）
-python start_vlm_server.py        # 终端1：启动服务器
-python main_interaction.py         # 终端2：交互式解析
+# GraphRAG 模式前先启动 Neo4j（首次运行自动构建图谱）
+sudo neo4j start
 
-# AGV仓储调度（无需GPU，纯CPU即可）
+# 港口指令解析（需先启动 vLLM Qwen3.5 服务器）
+VLM_MODEL_TYPE=qwen35 python start_vlm_server.py   # 终端1：启动服务器
+python main_interaction.py                          # 终端2：ReAct Agent 交互式解析
+
+# AGV调度+指令解析整合入口（菜单：单条/批量/仿真/消融/选图）
+python main_agv.py
+
+# AGV仓储调度仿真（无需GPU，纯CPU即可）
 python main_simulation.py --ablation
 
 # REST API服务（可选：不启动vLLM则降级为规则解析）
@@ -550,11 +565,13 @@ python status_vlm_server.py    # 查看状态
 # 停止：kill $(cat /tmp/vlm_server.pid) 或 Ctrl+C
 ```
 
-**模型对比**：
-- **Qwen2-VL-2B**（~5GB）：推理速度快，适合资源受限环境
-- **Qwen3.5-4B**（~9GB）：平衡性能和速度
+服务器启动时附带 `--enable-auto-tool-choice --tool-call-parser qwen3_xml --enable-prefix-caching`，以支持 ReAct Agent 的原生工具调用与前缀缓存加速。
 
-通过 `VLM_MODEL_TYPE=qwen2` 或 `qwen35` 切换。
+**模型对比**：
+- **Qwen2-VL-2B**（~5GB，端口 `base_port`）：推理速度快，适合资源受限环境
+- **Qwen3.5-4B**（~9GB，端口 `base_port + 1`）：支持 function calling，**ReAct Agent 必须使用此模型**
+
+通过 `VLM_MODEL_TYPE=qwen2` 或 `qwen35` 切换。Agent 流程（`main_interaction.py` / `main_api.py` 的 VLM 模式）需 Qwen3.5 服务运行中。
 
 ### 交互式使用
 
@@ -567,34 +584,43 @@ python main_interaction.py
 - 实时录音：输入 `r`（5秒）
 - RAG管理：`rag:status` / `rag:enable` / `rag:disable` / `rag:rebuild`
 
-### 输出格式
+### 输出格式（WorkOrder）
 
-```json
-{
-  "part_name": "传送带电机",
-  "quantity": 5,
-  "model": "YVF2-132S-4",
-  "installation_equipment": "3号传送带",
-  "location": "港区B区",
-  "description": "需要更换电机",
-  "action_required": "更换"
-}
+`main_interaction.py` 的 `print_result` 打印 Agent 组装的 `WorkOrder` 摘要：
+
+```
+────────────────────────────────────────
+【WorkOrder 摘要】
+  备件: 深沟球轴承  型号: 6208-2RS-C3-SKF  数量: 2  类型: OUTBOUND
+  取货位: Mech1_R1_B1  → 送货位: OUT_1
+  ⚠ 补货单: RS-1A2B3C4D    （仅出库缺货时出现）
+────────────────────────────────────────
 ```
 
-### API使用示例
+`WorkOrder` 结构（`src/warehouse/models.py`）：
 
 ```python
-from src.asr import get_asr_instance
-from src.vlm import get_vlm_instance
-from src.parser import PortInstructionParser
+WorkOrder(
+  order_id=0,
+  source="vlm",                 # vlm | batch | file | random
+  priority=OrderPriority.NORMAL,
+  items=[OrderItem(task_type=TaskType.OUTBOUND, model="...", part_name="...",
+                   quantity=2, resolved_pick="Mech1_R1_B1", resolved_dest="OUT_1")],
+  metadata={"restock_order_id": "RS-..."},
+)
+```
 
-asr = get_asr_instance()
-vlm = get_vlm_instance()
-parser = PortInstructionParser()
+### 编程调用示例
 
-audio_text = asr.transcribe("audio.wav")
-result = vlm.extract_structured_info(text=audio_text, enable_rag=True)
-instruction = parser.parse_output(vlm_result=result, raw_text=audio_text)
+```python
+from src.agent import run_agent
+
+# 文本指令 → WorkOrder（需 vLLM Qwen3.5 服务运行中）
+order = run_agent(text="需要2个深沟球轴承，型号6208-2RS-C3-SKF", verbose=True)
+print(order.model_dump())
+
+# 图片指令
+order = run_agent(image="/path/to/order.jpg")
 ```
 
 ---
@@ -614,9 +640,20 @@ VLM_MODEL_TYPE=qwen2              # qwen2 或 qwen35
 # RAG
 RAG_ENABLED=true
 RAG_GRAPH_ENABLED=true
-RAG_EMBEDD_MODEL=BAAI/bge-m3
-GRAPH_RAG_DEEPSEEK_API_KEY=xxx     # GraphRAG 所需
+RAG_EMBEDDING_MODEL=BAAI/bge-m3
+GRAPH_RAG_DEEPSEEK_API_KEY=xxx     # GraphRAG 三元组抽取所需
+
+# Neo4j（GraphRAG 图谱存储后端，替代旧的本地 JSON）
+NEO4J_URI=bolt://localhost:7687
+NEO4J_USERNAME=neo4j
+NEO4J_PASSWORD=your-password
+NEO4J_DATABASE=neo4j
+
+# include_text=false 返回主语实体的全部三元组（精准）；true 附带原始文档块
+GRAPH_RETRIEVAL_VECTOR_INCLUDE_TEXT=false
 ```
+
+> ReAct Agent 复用 `VLM35_MODEL` / `VLLM_SERVER_BASE_PORT`：Agent LLM 连接 `base_port + 1` 端口的 Qwen3.5 服务。详细 Neo4j 操作见 [NEO4J.md](NEO4J.md)。
 
 ### AGV调度配置（src/warehouse/wms/config.py）
 
@@ -630,11 +667,12 @@ GRAPH_RAG_DEEPSEEK_API_KEY=xxx     # GraphRAG 所需
 | `TSP_TIME_LIMIT` | 1 | TSP求解时限(秒) |
 | `RANDOM_SEED` | 42 | 随机种子 |
 
-消融开关（`AblationFlags`）：
+消融开关（`src/warehouse/models.py` `AblationFlags`，batch 常驻不关闭）：
 - `enable_path_cache`：M1 路径缓存
-- `enable_clustering`：M2 聚类
-- `enable_tsp`：M3 TSP排序
-- `enable_regret`：M4 Regret-2全局分配
+- `enable_clustering`：M2 方向感知空间聚类
+- `enable_tsp`：M3 OR-Tools TSP排序
+
+> M4 Regret-2 全局分配在 `main_simulation.py --ablation` 的对比流程中单独控制（见上方消融实验结果表），不属于 `AblationFlags`。
 
 ### API调度配置（src/api/queue_manager.py）
 
@@ -650,30 +688,34 @@ GRAPH_RAG_DEEPSEEK_API_KEY=xxx     # GraphRAG 所需
 
 ```
 wh_graphrag_re/
-├── main_interaction.py       # 港口指令解析入口（交互式）
-├── main_simulation.py        # AGV调度仿真入口
+├── main_interaction.py       # 港口指令解析入口（交互式，ASR→ReAct Agent）
+├── main_agv.py               # AGV调度+指令解析整合入口（菜单式 v2.0）
+├── main_simulation.py        # AGV调度仿真入口（含 --ablation 消融实验）
 ├── main_api.py               # REST API服务启动入口
-├── main_rag.py               # RAG测试CLI
-├── start_vlm_server.py       # vLLM服务器启动
+├── main_rag.py               # RAG测试CLI（Traditional / Neo4j Graph）
+├── start_vlm_server.py       # vLLM服务器启动（tool-call + prefix caching）
 ├── status_vlm_server.py      # vLLM服务器状态查询
 ├── test_api_batch.py         # 批量调度端到端测试（10条真实数据→调度→动画）
 ├── restock_inventory.py      # 库存一键补充工具（补量+清空预留）
+├── NEO4J.md                  # Neo4j 服务管理与图谱生命周期说明
 ├── src/
+│   ├── agent/                # ReAct Agent 模块
+│   │   ├── agent.py          # LangGraph create_react_agent + WorkOrder 组装
+│   │   └── tools/            # query_knowledge_base / query_inventory / create_restock
 │   ├── api/                  # REST API模块
-│   │   ├── app.py            # FastAPI工厂函数
+│   │   ├── app.py            # FastAPI工厂函数（Agent解析→库存预留→入队）
 │   │   ├── models.py         # 请求/响应模型
 │   │   ├── queue_manager.py  # 事件驱动工单队列
 │   │   └── scheduler.py      # 后台调度协程
 │   ├── asr/whisper.py        # Whisper ASR
 │   ├── vlm/                  # VLM模块（router + qwen2 + qwen35 + server）
-│   ├── parser/parser.py      # PortInstruction解析器
-│   ├── rag/                  # RAG模块（manager + traditional + graph）
-│   ├── common/               # 配置、Reranker、工具函数
+│   ├── parser/parser.py      # PortInstruction 模型 + 规则解析降级
+│   ├── rag/                  # RAG模块（manager + traditional + graph[Neo4j]）
+│   ├── common/               # 配置、Reranker、prompts、工具函数
 │   └── warehouse/            # AGV调度系统（见上方模块结构）
 ├── data/
-│   ├── knowledge_base/       # 港口设备知识库
-│   ├── vector_db/            # 向量数据库（运行时生成）
-│   └── graph_db/             # 图谱数据库（运行时生成）
+│   └── knowledge_base/       # 港口设备知识库（GraphRAG 图谱持久化于 Neo4j）
+├── config/prompts.yaml       # VLM / Agent 系统提示
 ├── tests/                    # 测试套件
 ├── .env.example              # 环境变量模板
 └── requirements.txt          # 依赖列表
@@ -685,10 +727,13 @@ wh_graphrag_re/
 
 | 问题 | 解决方案 |
 |------|---------|
-| 模型加载失败 | 检查网络和磁盘空间（BGE-M3: ~2.3GB, Qwen2-VL: ~5GB） |
+| 模型加载失败 | 检查网络和磁盘空间（BGE-M3: ~2.3GB, Qwen3.5-4B: ~9GB） |
+| Agent 不调用工具/解析失败 | 确认启动的是 Qwen3.5（`VLM_MODEL_TYPE=qwen35`）且服务器带 `--tool-call-parser qwen3_xml` |
+| Neo4j 连接失败 | `sudo neo4j status` 确认运行，核对 `.env` 的 `NEO4J_*`，确认已装 APOC 插件 |
+| 图谱为空/需重建 | `cypher-shell -u neo4j -p <pwd> "MATCH (n) DETACH DELETE n;"` 后重启应用，或 `rag:rebuild` |
 | RAG检索失败 | 确认 `data/knowledge_base/` 有文档，运行 `rag:rebuild` |
 | GBK编码错误 | `python -X utf8 main_interaction.py` |
-| GPU内存不足 | 降低 `VLLM_SERVER_GPU_MEM_UTIL` 或使用 Qwen2-VL-2B |
+| GPU内存不足 | 降低 `VLLM_SERVER_GPU_MEM_UTIL` 或使用 Qwen2-VL-2B（注：Agent 需 Qwen3.5） |
 | API库存不足 | 检查 `data/inventory.db` 或重启API服务重建库存 |
 | API调度无响应 | 检查队列是否满足触发条件（≥10条或等待30秒） |
 
