@@ -5,6 +5,9 @@
 启动方式:
     python main_api.py                    # 默认 0.0.0.0:8000
     python main_api.py --port 9000        # 自定义端口
+
+配套 Celery Worker（另起终端）:
+    python main_worker.py
 """
 import argparse
 import logging
@@ -41,36 +44,19 @@ def build_app():
 
     om = OrderManager(map_config, seed=wh_config.RANDOM_SEED)
 
-    # 尝试初始化 VLM（允许失败）
-    parser = None
+    # 检查 vLLM 是否在线（只做检测，不在 API 进程里加载模型）
     vlm_available = False
     try:
         from src.vlm.server import get_vlm_server_manager
-        if not get_vlm_server_manager().is_server_running():
-            raise RuntimeError("vLLM 服务器未运行")
-        from main_interaction import InstructionParser
-        parser = InstructionParser()
-        vlm_available = True
-        logger.info("VLM 解析器初始化成功。")
-    except (SystemExit, RuntimeError):
-        logger.warning("vLLM 服务未运行，将使用规则解析降级。")
+        if get_vlm_server_manager().is_server_running():
+            vlm_available = True
+            logger.info("vLLM 服务在线，异步 Agent 路径已启用。")
+        else:
+            logger.warning("vLLM 服务未运行，将使用规则解析降级。")
     except Exception as e:
-        logger.warning("VLM 初始化失败: %s，将使用规则解析降级。", e)
-
-    if not vlm_available:
-        from src.parser.parser import PortInstructionParser
-
-        class _RuleParser:
-            def __init__(self):
-                self._p = PortInstructionParser()
-
-            def parse(self, text=None, audio=None, image=None):
-                return self._p._rule_based_parse(text or "")
-
-        parser = _RuleParser()
+        logger.warning("vLLM 检测失败: %s，将使用规则解析降级。", e)
 
     return create_app(
-        parser=parser,
         inv_db=inv_db,
         vlm_available=vlm_available,
         wmap=wmap,

@@ -1,8 +1,11 @@
 #!/usr/bin/env python3
 """批量多品类调度测试脚本
 
-使用数据库真实零件名称和型号，提交 10 条指令触发批量调度，
-等待调度完成后打印结果并下载动画 GIF。
+流程：
+  阶段1  批量提交 10 条指令（立即返回 instruction_id）
+  阶段2  轮询 /agent-result/{id}，等待每条 Agent 处理完成
+  阶段3  轮询 /status，等待 Simulator 批量调度完成
+  阶段4  打印结果并下载动画 GIF
 
 用法:
     python test_api_batch.py
@@ -11,6 +14,7 @@
 """
 import argparse
 import time
+
 import requests
 
 INSTRUCTIONS = [
@@ -27,32 +31,85 @@ INSTRUCTIONS = [
 ]
 
 
-def main(base: str, output: str, poll_interval: int = 3):
-    print("=== 提交 10 条指令 ===")
+def submit_instructions(base: str) -> list[dict]:
+    """阶段1：批量提交指令，收集 instruction_id。"""
+    print("=== 阶段1：提交指令 ===")
+    submitted = []
     for text in INSTRUCTIONS:
-        r = requests.post(f"{base}/instructions", json={"text": text})
+        r = requests.post(f"{base}/instructions", json={"text": text}, timeout=10)
         r.raise_for_status()
         d = r.json()
-        print(
-            f"  [{d['parsed']['part_name']}]"
-            f"  位置={d['resolved_location'] or '未命中'}"
-            f"  端口={d['target_port'] or '-'}"
-        )
+        submitted.append({"instruction_id": d["instruction_id"], "text": text})
+        print(f"  已入队  id={d['instruction_id'][:8]}...  [{text[:20]}]")
+    print(f"\n  共提交 {len(submitted)} 条指令\n")
+    return submitted
 
-    print("\n=== 等待调度完成 ===")
+
+def wait_for_agents(base: str, submitted: list[dict], poll_interval: int) -> list[dict]:
+    """阶段2：轮询 /agent-result/{id}，等待每条 Agent 处理完成。"""
+    print("=== 阶段2：等待 Agent 处理 ===")
+    completed = {}
+    pending = {s["instruction_id"]: s["text"] for s in submitted}
+
+    while pending:
+        done_ids = []
+        for iid, text in pending.items():
+            r = requests.get(f"{base}/agent-result/{iid}", timeout=10)
+            r.raise_for_status()
+            d = r.json()
+
+            if d["status"] == "completed":
+                wo = d.get("work_order") or {}
+                items = wo.get("items", [])
+                item = items[0] if items else {}
+                print(
+                    f"  ✓ [{iid[:8]}]"
+                    f"  {item.get('part_name', '-')}"
+                    f"  型号={item.get('model', '-')}"
+                    f"  数量={item.get('quantity', '-')}"
+                    f"  取货={item.get('pick', '-')}"
+                )
+                completed[iid] = d
+                done_ids.append(iid)
+
+            elif d["status"] == "failed":
+                print(f"  ✗ [{iid[:8]}] 失败: {d.get('error', '未知错误')}")
+                done_ids.append(iid)
+
+        for iid in done_ids:
+            pending.pop(iid)
+
+        if pending:
+            print(f"  等待中... 剩余 {len(pending)} 条")
+            time.sleep(poll_interval)
+
+    print(f"\n  Agent 处理完成: {len(completed)}/{len(submitted)} 条成功\n")
+    return list(completed.values())
+
+
+def wait_for_simulator(base: str, prev_run_id: str | None, poll_interval: int) -> str:
+    """阶段3：轮询 /status，等待 Simulator 批量调度完成，返回 run_id。"""
+    print("=== 阶段3：等待批量调度（Simulator）===")
+
     while True:
-        status = requests.get(f"{base}/status").json()
-        print(
-            f"  队列: {status['queue_size']} 条"
-            f" | 调度状态: {status['scheduler_status']}"
-        )
-        if status["queue_size"] == 0 and status["last_run_id"]:
-            run_id = status["last_run_id"]
-            break
+        status = requests.get(f"{base}/status", timeout=5).json()
+        queue_size = status["queue_size"]
+        sched_status = status["scheduler_status"]
+        run_id = status.get("last_run_id")
+
+        print(f"  队列: {queue_size} 条 | 调度状态: {sched_status}")
+
+        if queue_size == 0 and run_id and run_id != prev_run_id:
+            print(f"\n  调度完成，run_id={run_id}\n")
+            return run_id
+
         time.sleep(poll_interval)
 
-    print("\n=== 调度结果 ===")
-    result = requests.get(f"{base}/result/{run_id}").json()
+
+def print_and_download(base: str, run_id: str, output: str) -> None:
+    """阶段4：打印调度结果并下载动画。"""
+    print("=== 阶段4：调度结果 ===")
+    result = requests.get(f"{base}/result/{run_id}", timeout=10).json()
     print(f"  run_id      : {result['run_id']}")
     print(f"  工单数       : {result['order_count']}")
     print(f"  makespan    : {result['makespan']} 步")
@@ -65,11 +122,19 @@ def main(base: str, output: str, poll_interval: int = 3):
             print(f"    - {inst}")
 
     print("\n=== 下载动画 ===")
-    gif = requests.get(f"{base}/result/{run_id}/animation")
+    gif = requests.get(f"{base}/result/{run_id}/animation", timeout=30)
     gif.raise_for_status()
     with open(output, "wb") as f:
         f.write(gif.content)
     print(f"  动画已保存 → {output}")
+
+
+def main(base: str, output: str, poll_interval: int) -> None:
+    prev_run_id = requests.get(f"{base}/status", timeout=5).json().get("last_run_id")
+    submitted = submit_instructions(base)
+    wait_for_agents(base, submitted, poll_interval)
+    run_id = wait_for_simulator(base, prev_run_id, poll_interval)
+    print_and_download(base, run_id, output)
 
 
 if __name__ == "__main__":

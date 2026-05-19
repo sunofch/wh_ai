@@ -20,8 +20,9 @@ AGENT_NAME = "agv_agent"
 _SYSTEM_PROMPT = """你是港口备件仓储系统的 AGV 调度专家。
 
 收到工单信息后，按以下步骤处理：
-1. 从对话历史中找到工单数据（JSON 格式，含 order_id、priority、items 字段）
-2. 将完整工单 JSON 传入 schedule_agv_tasks 工具执行调度规划
+1. 从输入中提取工单数据，传入 schedule_agv_tasks 的格式示例：
+   {"order_id": 1, "priority": 5, "items": [{"task_type": "OUTBOUND", "model": "...", "part_name": "...", "quantity": 1, "pick": "...", "dest": "..."}]}
+2. 将工单 JSON 传入 schedule_agv_tasks 工具执行调度规划
 3. 返回调度结果摘要
 
 最终以 JSON 格式返回：

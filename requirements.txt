@@ -43,6 +43,8 @@ matplotlib==3.10.9
 # API 服务
 fastapi==0.135.2
 uvicorn[standard]==0.42.0
+celery[redis]==5.5.3
+redis==5.2.1
 
 # ReAct Agent + Multi-Agent
 langgraph==1.1.3

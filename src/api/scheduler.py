@@ -103,7 +103,7 @@ def _release_orders(inv_db, orders: list[WorkOrder]) -> None:
 
 
 async def scheduler_loop(
-    queue: OrderQueue,
+    queue,
     results: OrderedDict,
     wmap: WarehouseMap,
     fleet: FleetManager,
@@ -112,13 +112,19 @@ async def scheduler_loop(
     outbound_ports: list[str],
     state: dict | None = None,
 ) -> None:
-    """后台协程：事件驱动调度，满足触发条件时批量调度。"""
+    """后台协程：事件驱动调度，满足触发条件时批量调度。
+
+    queue 可以是 OrderQueue（内存）或 RedisOrderQueue（生产），自动适配。
+    """
     from datetime import datetime
+    from src.api.queue_manager import RedisOrderQueue
+
+    is_redis = isinstance(queue, RedisOrderQueue)
 
     while True:
         await queue.wait_for_flush()
 
-        orders = queue.drain()
+        orders = await queue.drain_async() if is_redis else queue.drain()
         if not orders:
             continue
 
@@ -144,7 +150,10 @@ async def scheduler_loop(
             )
         except Exception:
             logger.exception("调度异常，run_id=%s", run_id)
-            if queue.requeue(orders):
+            requeued = (
+                await queue.requeue_async(orders) if is_redis else queue.requeue(orders)
+            )
+            if requeued:
                 logger.info("批次重入队等待重试")
             else:
                 logger.warning("超过重试次数，批次标记 failed")

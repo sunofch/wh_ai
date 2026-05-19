@@ -21,13 +21,17 @@ class ParsedInstruction(BaseModel):
 
 
 class InstructionResponse(BaseModel):
-    instruction_id:    str
-    status:            str
-    vlm_available:     bool
-    parsed:            ParsedInstruction
-    resolved_location: str = ""
-    resolved_en_name:  str = ""
-    target_port:       str = ""
+    instruction_id: str
+    status:         str           # "queued" | "completed" | "failed"
+    vlm_available:  bool
+    parsed:         Optional[ParsedInstruction] = None
+
+
+class AgentResultResponse(BaseModel):
+    instruction_id: str
+    status:         str           # "pending" | "completed" | "failed"
+    work_order:     Optional[dict] = None
+    error:          Optional[str] = None
 
 
 class StatusResponse(BaseModel):

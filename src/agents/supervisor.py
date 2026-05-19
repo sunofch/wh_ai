@@ -1,59 +1,34 @@
-"""Supervisor / Router Agent：意图分类 + 路由到专化 Agent。
+"""Supervisor：手动顺序编排三个子 Agent，最小化跨 Agent 的 context 传递。
 
-当前挂载的子 Agent：
-  - instruction_agent（Agent 1：领料解析）
-
-后续扩展只需在 _AGENTS 列表中 append 新 Agent，
-并在 _SUPERVISOR_PROMPT 中补充对应路由说明。
+流水线：
+  instruction_agent（解析指令）
+      ↓ 只传最后一条消息文本
+  inventory_agent（查库存 + 建工单）
+      ↓ 只传工单 JSON 文本
+  agv_agent（调度 AGV）
 """
 from __future__ import annotations
 
-from functools import lru_cache
 from typing import Any
-
-from langchain_openai import ChatOpenAI
-from langgraph_supervisor import create_supervisor
 
 from src.agents.instruction_agent import get_instruction_agent
 from src.agents.inventory_agent import get_inventory_agent
 from src.agents.agv_agent import get_agv_agent
-from src.common.config import config
-
-_SUPERVISOR_PROMPT = """你是港口备件仓储系统的智能调度员。
-
-根据用户请求，按以下规则路由：
-- 领料、出库、入库、需要备件、零件申请、解析指令 → 依次调用：instruction_agent 解析 → inventory_agent 处理库存 → agv_agent 调度 AGV
-- 仅查询库存数量/位置，不涉及工单 → 直接调用 inventory_agent
-- 补货、创建工单、库存操作 → 直接调用 inventory_agent
-
-严格按顺序执行，不得跳过任何步骤，不得向用户询问确认，完成所有步骤后再输出最终结果。
-"""
 
 
-@lru_cache(maxsize=1)
-def _get_supervisor_llm() -> ChatOpenAI:
-    port = config.vllm_server.base_port + 1
-    host = config.vllm_server.host
-    return ChatOpenAI(
-        base_url=f"http://{host}:{port}/v1",
-        api_key="EMPTY",
-        model=config.supervisor.model,
-        temperature=0,
-        max_tokens=config.supervisor.max_tokens,
-        extra_body={"chat_template_kwargs": {"enable_thinking": False}},
-    )
-
-
-@lru_cache(maxsize=1)
-def get_supervisor():
-    """返回编译好的 Supervisor 多 Agent 图。"""
-    builder = create_supervisor(
-        agents=[get_instruction_agent(), get_inventory_agent(), get_agv_agent()],
-        model=_get_supervisor_llm(),
-        prompt=_SUPERVISOR_PROMPT,
-        output_mode="last_message",
-    )
-    return builder.compile()
+def _extract_last_text(result: dict) -> str:
+    """从 Agent 结果中提取最后一条消息的文本内容。"""
+    messages = result.get("messages", [])
+    if not messages:
+        return ""
+    content = messages[-1].content
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        for part in content:
+            if isinstance(part, dict) and part.get("type") == "text":
+                return part.get("text", "")
+    return str(content)
 
 
 def run(
@@ -61,9 +36,10 @@ def run(
     image: str | None = None,
     verbose: bool = False,
 ):
-    """Supervisor 主入口，统一替代 src.agent.agent.run_agent()。"""
+    """Supervisor 主入口。每个子 Agent 只接收上一步的最小输出，不累积完整历史。"""
     from src.agent.agent import _assemble_work_order, _print_agent_messages
 
+    # 构建用户输入
     content: list[dict[str, Any]] = []
     if image:
         import base64
@@ -78,10 +54,28 @@ def run(
     if not content:
         content = [{"type": "text", "text": "无有效输入"}]
 
-    app = get_supervisor()
-    result = app.invoke({"messages": [{"role": "user", "content": content}]})
-
+    # Step 1: instruction_agent — 只接收原始用户输入
+    result1 = get_instruction_agent().invoke(
+        {"messages": [{"role": "user", "content": content}]}
+    )
     if verbose:
-        _print_agent_messages(result.get("messages", []))
+        _print_agent_messages(result1.get("messages", []))
+    parsed_text = _extract_last_text(result1)
 
-    return _assemble_work_order(result)
+    # Step 2: inventory_agent — 只接收 instruction_agent 的最终文本
+    result2 = get_inventory_agent().invoke(
+        {"messages": [{"role": "user", "content": parsed_text}]}
+    )
+    if verbose:
+        _print_agent_messages(result2.get("messages", []))
+    work_order_text = _extract_last_text(result2)
+
+    # Step 3: agv_agent — 只接收工单 JSON 文本
+    result3 = get_agv_agent().invoke(
+        {"messages": [{"role": "user", "content": work_order_text}]}
+    )
+    if verbose:
+        _print_agent_messages(result3.get("messages", []))
+
+    # 用 inventory_agent 的 messages 组装 WorkOrder（含 create_work_order ToolMessage）
+    return _assemble_work_order({"messages": result2.get("messages", [])})
