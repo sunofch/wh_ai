@@ -1,14 +1,16 @@
-# wh_graphrag_re - ReAct Agent 多模态AI港口指令解析与AGV调度系统
+# wh_graphrag_re - 多智能体AI港口指令解析与AGV调度系统
 
-基于 Python 的多模态AI系统，集成了语音识别、ReAct 智能体、视觉语言模型、RAG知识检索（Neo4j 图谱）和AGV仓储调度，专门用于港口/海事领域的智能化作业。
+基于 Python 的多模态AI系统，集成了多智能体架构、语音识别、视觉语言模型、RAG知识检索（Neo4j 图谱）和AGV仓储调度，专门用于港口/海事领域的智能化作业。
 
 ## 项目特色
 
-- **ReAct Agent 架构**：基于 LangGraph `create_react_agent`，自主调用知识库检索与库存查询工具，端到端输出可下发工单
+- **多智能体架构**：三个职责清晰的 Agent——`instruction_agent`（LLM 语义解析）、`inventory_agent`（LLM 工单创建）、`agv_agent`（纯算法批量调度），由 Supervisor 编排
+- **LLM 与调度解耦**：LLM 只负责语义理解和工单创建，AGV 调度完全由确定性算法承担，符合工业界 AGV 调度架构共识
+- **异步批量调度**：Celery 异步处理 LLM 推理，工单积累到阈值或超时后由 `agv_agent` 批量调度，兼顾响应速度与全局优化
 - **vLLM 工具调用推理**：PagedAttention + prefix caching，`qwen3_xml` tool-call 解析器支持原生 function calling
 - **双模式RAG**：传统向量检索 + GraphRAG 知识图谱（Neo4j 持久化 + 实体三元组展开）
 - **AGV仓储调度**：四层调度架构（WMS→WES→Fleet→Simulation），含聚类、TSP、Regret-2全局优化
-- **REST API服务**：FastAPI事件驱动调度接口，支持 Agent 解析→库存预留→AGV入队全链路
+- **REST API服务**：FastAPI 事件驱动调度接口，Redis 双队列（普通/紧急），支持全链路异步处理
 - **多模态输入**：音频、文本、图像统一处理
 - **结构化输出**：Pydantic `WorkOrder` 模型，库存不足自动生成补货单
 
@@ -159,29 +161,38 @@ src/warehouse/
 
 ## 系统三：REST API 服务
 
-FastAPI服务，提供从港口指令解析到AGV调度的完整链路。
+FastAPI 服务，提供从港口指令解析到 AGV 调度的完整异步链路。
 
-### 数据流
+### 多智能体数据流
 
 ```
 POST /instructions (文本/音频/图像)
-  → ReAct Agent 解析（vLLM 未运行时降级为规则解析）→ WorkOrder
-  → 库存查询 + reserve(预留)
-  → 端口分配 + 工单入队 (OrderQueue)
-  → 调度触发 (事件驱动: 满10条 OR 30秒超时 OR URGENT)
-  → run_pipeline (TaskDecomposer → Clusterer → Fleet → Simulator)
-  → 成功 confirm / 失败 release 库存预留
-  → 结果存储 (GET /result/{run_id})
+  │
+  ├─ VLM 在线 → Celery 异步任务
+  │     └─ Supervisor（LLM 两步流水线）
+  │           ├─ instruction_agent：语义解析
+  │           └─ inventory_agent：查库存 + 建工单
+  │                 ↓ WorkOrder 推入 Redis 队列
+  │
+  └─ VLM 离线 → 规则解析（降级），WorkOrder 直接入队
+  
+  队列（Redis / 内存，满10条 OR 30秒超时 OR URGENT）
+  └─ scheduler_loop 触发
+        └─ agv_agent.run()（纯算法）
+              TaskDecomposer → Clusterer → Fleet → Simulator
+              → 成功 confirm / 失败 release 库存预留
+              → 结果存储 (GET /result/{run_id})
 ```
 
 ### API 端点
 
 | 方法 | 路径 | 说明 |
 |------|------|------|
-| `POST` | `/instructions` | 提交港口指令，返回instruction_id和解析结果 |
+| `POST` | `/instructions` | 提交港口指令，返回 instruction_id |
+| `GET` | `/agent-result/{id}` | 查询单条指令的 LLM 处理结果（WorkOrder） |
 | `GET` | `/status` | 查看队列状态和调度状态 |
-| `GET` | `/result/{run_id}` | 获取调度结果（makespan、距离、利用率等） |
-| `GET` | `/result/{run_id}/animation` | 按需生成并下载调度动画GIF |
+| `GET` | `/result/{run_id}` | 获取批次调度结果（makespan、距离、利用率等） |
+| `GET` | `/result/{run_id}/animation` | 按需生成并下载调度动画 GIF |
 
 ### 启动 API 服务
 
@@ -480,14 +491,21 @@ curl -o schedule.gif $BASE/result/<run_id>/animation
 
 > **说明**：上述零件名称与型号均来自 `inventory_db.py` 的 `_PARTS_CATALOG`，每条指令请求数量≤2，低于数据库初始库存（seeded 5～20），提交后必然命中库存。API 服务使用规则解析（VLM 未启动时降级），通过零件名 LIKE 匹配定位储位后执行 `reserve`，10 条触发批量调度。
 
-### API 模块结构
+### 模块结构
 
 ```
+src/agents/
+  supervisor.py        - Supervisor：编排两步 LLM 流水线，返回 WorkOrder
+  instruction_agent.py - LLM Agent：语义解析，工具：query_knowledge_base
+  inventory_agent.py   - LLM Agent：库存查询 + 工单创建
+  agv_agent.py         - 纯算法 Agent：批量 AGV 调度（TaskDecomposer→Clusterer→Fleet→Sim）
+
 src/api/
-  app.py           - FastAPI工厂函数（依赖注入，便于测试）
-  models.py        - 请求/响应Pydantic模型
-  queue_manager.py - 事件驱动工单队列（asyncio.Event，含urgent优先队列和重试）
-  scheduler.py     - 后台调度协程（事件驱动批量触发，成功confirm/失败release）
+  app.py               - FastAPI 工厂函数（依赖注入，便于测试）
+  celery_app.py        - Celery 任务定义（process_order / process_order_urgent）
+  models.py            - 请求/响应 Pydantic 模型
+  queue_manager.py     - 工单队列（内存 / Redis，含 urgent 优先队列和重试）
+  scheduler.py         - 后台协程：等待队列触发条件，调用 agv_agent.run()
 ```
 
 ---
@@ -547,8 +565,9 @@ python main_api.py
 # 补充库存（首次运行或库存耗尽时）
 python restock_inventory.py --qty 100
 
-# 端到端批量调度测试（提交10条指令→等待调度→打印结果→下载动画）
+# 端到端批量调度测试（提交10条指令→等待所有批次调度→打印结果）
 python test_api_batch.py
+python test_api_batch.py --animation   # 同时下载调度动画 GIF
 ```
 
 ---
@@ -699,14 +718,20 @@ wh_graphrag_re/
 ├── restock_inventory.py      # 库存一键补充工具（补量+清空预留）
 ├── NEO4J.md                  # Neo4j 服务管理与图谱生命周期说明
 ├── src/
-│   ├── agent/                # ReAct Agent 模块
-│   │   ├── agent.py          # LangGraph create_react_agent + WorkOrder 组装
+│   ├── agents/               # 多智能体模块
+│   │   ├── supervisor.py     # Supervisor：编排 LLM 两步流水线
+│   │   ├── instruction_agent.py  # LLM Agent：指令语义解析
+│   │   ├── inventory_agent.py    # LLM Agent：库存查询 + 工单创建
+│   │   └── agv_agent.py          # 纯算法 Agent：批量 AGV 调度
+│   ├── agent/                # 单 Agent 兼容模块（WorkOrder 组装辅助）
+│   │   ├── agent.py          # _assemble_work_order 等工具函数
 │   │   └── tools/            # query_knowledge_base / query_inventory / create_restock
-│   ├── api/                  # REST API模块
-│   │   ├── app.py            # FastAPI工厂函数（Agent解析→库存预留→入队）
+│   ├── api/                  # REST API 模块
+│   │   ├── app.py            # FastAPI 工厂函数（指令接入→入队）
+│   │   ├── celery_app.py     # Celery 任务（异步 LLM 处理）
 │   │   ├── models.py         # 请求/响应模型
-│   │   ├── queue_manager.py  # 事件驱动工单队列
-│   │   └── scheduler.py      # 后台调度协程
+│   │   ├── queue_manager.py  # 工单队列（内存/Redis）
+│   │   └── scheduler.py      # 后台协程（触发 agv_agent）
 │   ├── asr/whisper.py        # Whisper ASR
 │   ├── vlm/                  # VLM模块（router + qwen2 + qwen35 + server）
 │   ├── parser/parser.py      # PortInstruction 模型 + 规则解析降级
