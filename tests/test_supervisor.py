@@ -1,10 +1,10 @@
-"""Supervisor / Router Agent 测试。
+"""Supervisor / Agent 测试。
 
 测试范围：
 1. instruction_agent 名称常量正确
 2. get_instruction_agent() 以正确 name 调用 create_react_agent
-3. get_supervisor() 将 instruction_agent 传入 create_supervisor
-4. run() 经 Supervisor 消息链正确提取指令并返回 WorkOrder
+3. supervisor.run() 经两步流水线返回 WorkOrder
+4. agv_agent.run() 纯算法调度路径可调用
 """
 import json
 from unittest.mock import patch, MagicMock
@@ -25,7 +25,6 @@ def test_get_instruction_agent_passes_name():
          patch("src.agents.instruction_agent.create_react_agent") as mock_create:
         mock_create.return_value = MagicMock()
 
-        # 清除 lru_cache 以强制重新执行
         from src.agents.instruction_agent import get_instruction_agent
         get_instruction_agent.cache_clear()
         get_instruction_agent()
@@ -34,99 +33,136 @@ def test_get_instruction_agent_passes_name():
         assert kwargs.get("name") == "instruction_agent"
 
 
-# ── 3. get_supervisor 将 instruction_agent 挂载进去 ────────────────────────────
+# ── 3. supervisor.run() 两步流水线返回 WorkOrder ──────────────────────────────
 
-def test_get_supervisor_includes_instruction_agent():
-    """create_supervisor 收到的 agents 列表包含 instruction_agent。"""
-    mock_agent = MagicMock(name="instruction_agent")
-
-    with patch("src.agents.supervisor.get_instruction_agent", return_value=mock_agent), \
-         patch("src.agents.supervisor._get_supervisor_llm"), \
-         patch("src.agents.supervisor.create_supervisor") as mock_cs:
-        compiled = MagicMock()
-        mock_cs.return_value.compile.return_value = compiled
-
-        from src.agents.supervisor import get_supervisor
-        get_supervisor.cache_clear()
-        get_supervisor()
-
-        agents_arg = mock_cs.call_args.kwargs.get("agents") or mock_cs.call_args.args[0]
-        assert mock_agent in agents_arg
-
-
-# ── 4. run() 从 Supervisor 消息链返回 WorkOrder ────────────────────────────────
-
-def _make_supervisor_messages(instruction_fields: dict, inventory_json: str | None = None):
-    """模拟 Supervisor 图返回的消息列表。
-
-    结构：
-      HumanMessage → Supervisor 路由 AIMessage → instruction_agent 工具调用
-      → ToolMessage(query_inventory) → instruction_agent 最终 AIMessage(JSON)
-      → Supervisor 总结 AIMessage（非 JSON）
-    """
+def _make_inventory_messages(instruction_fields: dict):
+    """模拟 inventory_agent 返回的消息列表，含 create_work_order ToolMessage。"""
     from langchain_core.messages import AIMessage, ToolMessage, HumanMessage
 
-    msgs = [HumanMessage(content="测试输入")]
-    if inventory_json:
-        msgs.append(ToolMessage(
-            content=inventory_json,
-            tool_call_id="query_inventory",
-            name="query_inventory",
-        ))
-    # instruction_agent 最终输出（含 JSON）
-    msgs.append(AIMessage(content=json.dumps(instruction_fields, ensure_ascii=False)))
-    # Supervisor 总结（纯文字，不含 JSON）
-    msgs.append(AIMessage(content="已完成领料解析，工单已生成。"))
-    return msgs
+    work_order_result = {
+        "status": "created",
+        "order_id": 1,
+        "priority": "NORMAL",
+        "items": [{
+            "task_type": "OUTBOUND",
+            "model": instruction_fields.get("model", ""),
+            "part_name": instruction_fields.get("part_name", ""),
+            "quantity": instruction_fields.get("quantity", 1),
+            "pick": "S-01",
+            "dest": "OUT-01",
+        }],
+    }
+    return [
+        HumanMessage(content="测试输入"),
+        ToolMessage(
+            content=json.dumps(work_order_result, ensure_ascii=False),
+            tool_call_id="create_work_order",
+            name="create_work_order",
+        ),
+        AIMessage(content=json.dumps(instruction_fields, ensure_ascii=False)),
+    ]
 
 
-def test_run_returns_work_order_via_supervisor():
-    """run() 透过 Supervisor 消息链正确组装 WorkOrder。"""
+def test_run_returns_work_order():
+    """supervisor.run() 经两步流水线正确返回 WorkOrder。"""
     from src.warehouse.models import WorkOrder, OrderItem, TaskType, OrderPriority
 
     mock_order = WorkOrder(
-        order_id=1, source="supervisor", priority=OrderPriority.NORMAL,
+        order_id=1, source="vlm", priority=OrderPriority.NORMAL,
         items=[OrderItem(item_id=1, task_type=TaskType.OUTBOUND, quantity=3)],
     )
-    msgs = _make_supervisor_messages({
+    msgs1 = [MagicMock(content="深沟球轴承 3个 出库")]
+    msgs2 = _make_inventory_messages({
         "part_name": "深沟球轴承", "quantity": 3,
         "model": "6208-Mech1", "action_required": "出库", "is_urgent": False,
     })
 
-    with patch("src.agents.supervisor.get_supervisor") as mock_gs, \
+    mock_instruction_agent = MagicMock()
+    mock_instruction_agent.invoke.return_value = {"messages": msgs1}
+
+    mock_inventory_agent = MagicMock()
+    mock_inventory_agent.invoke.return_value = {"messages": msgs2}
+
+    with patch("src.agents.supervisor.get_instruction_agent", return_value=mock_instruction_agent), \
+         patch("src.agents.supervisor.get_inventory_agent", return_value=mock_inventory_agent), \
          patch("src.agent.agent.StockManager"), \
          patch("src.agent.agent.OrderManager") as MockOM:
-        app = MagicMock()
-        mock_gs.return_value = app
-        app.invoke.return_value = {"messages": msgs}
         MockOM.return_value.from_port_instruction.return_value = mock_order
 
         from src.agents.supervisor import run
         result = run(text="需要3个深沟球轴承出库")
 
     assert isinstance(result, WorkOrder)
-    assert result.items[0].quantity == 3
 
 
-def test_run_skips_supervisor_summary_picks_instruction_json():
-    """_assemble_work_order 向后扫描，跳过 Supervisor 总结，找到 instruction_agent 的 JSON。"""
-    from src.warehouse.models import WorkOrder, OrderPriority
-
-    mock_order = WorkOrder(order_id=2, source="supervisor", priority=OrderPriority.NORMAL)
-    msgs = _make_supervisor_messages({
+def test_run_no_agv_scheduling():
+    """supervisor.run() 不触发 AGV 调度，agv_agent 不被调用。"""
+    msgs1 = [MagicMock(content="液压泵 1台 入库")]
+    msgs2 = _make_inventory_messages({
         "part_name": "液压泵", "quantity": 1,
-        "model": "HPU-300", "action_required": "入库", "is_urgent": True,
+        "model": "HPU-300", "action_required": "入库", "is_urgent": False,
     })
 
-    with patch("src.agents.supervisor.get_supervisor") as mock_gs, \
+    mock_instruction_agent = MagicMock()
+    mock_instruction_agent.invoke.return_value = {"messages": msgs1}
+
+    mock_inventory_agent = MagicMock()
+    mock_inventory_agent.invoke.return_value = {"messages": msgs2}
+
+    with patch("src.agents.supervisor.get_instruction_agent", return_value=mock_instruction_agent), \
+         patch("src.agents.supervisor.get_inventory_agent", return_value=mock_inventory_agent), \
          patch("src.agent.agent.StockManager"), \
-         patch("src.agent.agent.OrderManager") as MockOM:
-        app = MagicMock()
-        mock_gs.return_value = app
-        app.invoke.return_value = {"messages": msgs}
-        MockOM.return_value.from_port_instruction.return_value = mock_order
+         patch("src.agent.agent.OrderManager") as MockOM, \
+         patch("src.agents.agv_agent.run") as mock_agv:
+        MockOM.return_value.from_port_instruction.return_value = MagicMock()
 
         from src.agents.supervisor import run
-        result = run(text="液压泵1台入库")
+        run(text="液压泵1台入库")
 
-    assert isinstance(result, WorkOrder)
+    mock_agv.assert_not_called()
+
+
+# ── 4. agv_agent.run() 纯算法路径 ────────────────────────────────────────────
+
+def test_agv_agent_run_calls_pipeline():
+    """agv_agent.run() 依次调用 TaskDecomposer、OrderClusterer、FleetManager、Simulator。"""
+    from src.warehouse.models import WorkOrder, OrderPriority
+
+    orders = [WorkOrder(order_id=1, source="vlm", priority=OrderPriority.NORMAL)]
+
+    mock_wmap = MagicMock()
+    mock_wmap.storage_list = []
+    mock_wmap.zone_pos = {}
+
+    mock_fleet = MagicMock()
+    mock_fleet.path_finder = MagicMock()
+    mock_fleet.schedule.return_value = {}
+
+    mock_config = MagicMock()
+    mock_config.RANDOM_SEED = 42
+    mock_config.AGV_MAX_TASK_CAPACITY = 5
+
+    mock_sim_result = MagicMock()
+    mock_sim_result.makespan = 100
+    mock_sim_result.total_distance = 500
+    mock_sim_result.agv_utilization = 0.8
+    mock_sim_result.planning_time = 0.1
+
+    with patch("src.agents.agv_agent.TaskDecomposer") as MockTD, \
+         patch("src.agents.agv_agent.OrderClusterer") as MockCluster, \
+         patch("src.agents.agv_agent.Simulator") as MockSim:
+        MockTD.return_value.decompose.return_value = []
+        MockCluster.return_value.cluster.return_value = []
+        MockSim.return_value.run.return_value = mock_sim_result
+
+        from src.agents.agv_agent import run as agv_run
+        sched, sim = agv_run(
+            orders, mock_wmap, mock_fleet, mock_config,
+            [], [], "test-run-id"
+        )
+
+    assert sched.run_id == "test-run-id"
+    assert sched.order_count == 1
+    MockTD.return_value.decompose.assert_called_once()
+    MockCluster.return_value.cluster.assert_called_once()
+    MockSim.return_value.run.assert_called_once()

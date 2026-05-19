@@ -4,13 +4,18 @@
 流程：
   阶段1  批量提交 10 条指令（立即返回 instruction_id）
   阶段2  轮询 /agent-result/{id}，等待每条 Agent 处理完成
-  阶段3  轮询 /status，等待 Simulator 批量调度完成
-  阶段4  打印结果并下载动画 GIF
+  阶段3  轮询 /status，收集所有批次 run_id（队列清空后确认无新批次才退出）
+  阶段4  逐批次打印调度结果；指定 --animation 时额外下载动画 GIF
+
+说明：
+  10 条指令可能因 LLM 处理速度分成多个批次调度，阶段3 会收集所有批次结果。
+  多批次时动画文件自动加 _batch1/_batch2 后缀。
 
 用法:
-    python test_api_batch.py
+    python test_api_batch.py                          # 只打印结果
+    python test_api_batch.py --animation              # 打印结果并下载动画
     python test_api_batch.py --base http://localhost:8000
-    python test_api_batch.py --output my_schedule.gif
+    python test_api_batch.py --animation --output my_schedule.gif
 """
 import argparse
 import time
@@ -87,9 +92,18 @@ def wait_for_agents(base: str, submitted: list[dict], poll_interval: int) -> lis
     return list(completed.values())
 
 
-def wait_for_simulator(base: str, prev_run_id: str | None, poll_interval: int) -> str:
-    """阶段3：轮询 /status，等待 Simulator 批量调度完成，返回 run_id。"""
+def wait_for_all_schedules(
+    base: str, prev_run_id: str | None, poll_interval: int, idle_rounds: int = 3
+) -> list[str]:
+    """阶段3：收集本次提交触发的所有批次 run_id。
+
+    退出条件：队列为空，且连续 idle_rounds 轮没有出现新的 run_id。
+    """
     print("=== 阶段3：等待批量调度（Simulator）===")
+
+    collected: list[str] = []
+    seen: set[str] = {prev_run_id} if prev_run_id else set()
+    idle = 0
 
     while True:
         status = requests.get(f"{base}/status", timeout=5).json()
@@ -97,18 +111,28 @@ def wait_for_simulator(base: str, prev_run_id: str | None, poll_interval: int) -
         sched_status = status["scheduler_status"]
         run_id = status.get("last_run_id")
 
-        print(f"  队列: {queue_size} 条 | 调度状态: {sched_status}")
+        # 发现新 run_id，记录并重置空闲计数
+        if run_id and run_id not in seen:
+            seen.add(run_id)
+            collected.append(run_id)
+            idle = 0
+            print(f"  ✓ 新批次完成 run_id={run_id[:8]}... | 队列剩余: {queue_size} 条")
+        else:
+            print(f"  队列: {queue_size} 条 | 调度状态: {sched_status}")
 
-        if queue_size == 0 and run_id and run_id != prev_run_id:
-            print(f"\n  调度完成，run_id={run_id}\n")
-            return run_id
+        # 队列清空后，等待若干轮确认无新批次
+        if queue_size == 0 and collected:
+            idle += 1
+            if idle >= idle_rounds:
+                print(f"\n  全部批次完成，共 {len(collected)} 批\n")
+                return collected
 
         time.sleep(poll_interval)
 
 
-def print_and_download(base: str, run_id: str, output: str) -> None:
-    """阶段4：打印调度结果并下载动画。"""
-    print("=== 阶段4：调度结果 ===")
+def print_result(base: str, run_id: str, batch_index: int) -> None:
+    """打印单批次调度结果。"""
+    print(f"\n=== 批次 {batch_index} 结果（run_id={run_id[:8]}...）===")
     result = requests.get(f"{base}/result/{run_id}", timeout=10).json()
     print(f"  run_id      : {result['run_id']}")
     print(f"  工单数       : {result['order_count']}")
@@ -121,7 +145,10 @@ def print_and_download(base: str, run_id: str, output: str) -> None:
         for inst in result["instructions"]:
             print(f"    - {inst}")
 
-    print("\n=== 下载动画 ===")
+
+def download_animation(base: str, run_id: str, output: str, batch_index: int) -> None:
+    """下载单批次调度动画。"""
+    print(f"\n=== 下载动画（批次 {batch_index}）===")
     gif = requests.get(f"{base}/result/{run_id}/animation", timeout=30)
     gif.raise_for_status()
     with open(output, "wb") as f:
@@ -129,12 +156,18 @@ def print_and_download(base: str, run_id: str, output: str) -> None:
     print(f"  动画已保存 → {output}")
 
 
-def main(base: str, output: str, poll_interval: int) -> None:
+def main(base: str, output: str, poll_interval: int, animation: bool) -> None:
     prev_run_id = requests.get(f"{base}/status", timeout=5).json().get("last_run_id")
     submitted = submit_instructions(base)
     wait_for_agents(base, submitted, poll_interval)
-    run_id = wait_for_simulator(base, prev_run_id, poll_interval)
-    print_and_download(base, run_id, output)
+    run_ids = wait_for_all_schedules(base, prev_run_id, poll_interval)
+
+    stem, ext = output.rsplit(".", 1) if "." in output else (output, "gif")
+    for i, run_id in enumerate(run_ids, start=1):
+        print_result(base, run_id, batch_index=i)
+        if animation:
+            out_path = f"{stem}_batch{i}.{ext}" if len(run_ids) > 1 else output
+            download_animation(base, run_id, out_path, batch_index=i)
 
 
 if __name__ == "__main__":
@@ -142,6 +175,7 @@ if __name__ == "__main__":
     parser.add_argument("--base", default="http://localhost:8000", help="API 地址")
     parser.add_argument("--output", default="schedule.gif", help="动画输出文件名")
     parser.add_argument("--interval", type=int, default=3, help="轮询间隔（秒）")
+    parser.add_argument("--animation", action="store_true", help="下载调度动画 GIF")
     args = parser.parse_args()
 
-    main(args.base, args.output, args.interval)
+    main(args.base, args.output, args.interval, args.animation)

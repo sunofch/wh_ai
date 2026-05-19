@@ -124,12 +124,16 @@ def test_supervisor_run_with_restock_via_inventory_agent():
     ]
     mock_order = WorkOrder(order_id=1, source="supervisor", priority=OrderPriority.NORMAL)
 
-    with patch("src.agents.supervisor.get_supervisor") as mock_gs, \
+    mock_instruction_agent = MagicMock()
+    mock_instruction_agent.invoke.return_value = {"messages": [msgs[0]]}
+
+    mock_inventory_agent = MagicMock()
+    mock_inventory_agent.invoke.return_value = {"messages": msgs}
+
+    with patch("src.agents.supervisor.get_instruction_agent", return_value=mock_instruction_agent), \
+         patch("src.agents.supervisor.get_inventory_agent", return_value=mock_inventory_agent), \
          patch("src.agent.agent.StockManager"), \
          patch("src.agent.agent.OrderManager") as MockOM:
-        app = MagicMock()
-        mock_gs.return_value = app
-        app.invoke.return_value = {"messages": msgs}
         MockOM.return_value.from_port_instruction.return_value = mock_order
 
         from src.agents.supervisor import run
