@@ -1,294 +1,237 @@
-# wh_graphrag_re - 多智能体AI港口指令解析与AGV调度系统
+# wh_graphrag_re
 
-基于 Python 的多模态AI系统，集成了多智能体架构、语音识别、视觉语言模型、RAG知识检索（Neo4j 图谱）和AGV仓储调度，专门用于港口/海事领域的智能化作业。
+多模态港口指令解析、知识检索与 AGV 仓储调度一体化实验项目。项目把自然语言/图像/音频指令解析为结构化 `WorkOrder`，再通过 WMS/WES/Fleet/Simulation 四层调度链路完成批量 AGV 路径规划与仿真。
 
-## 项目特色
+核心能力：
 
-- **多智能体架构**：三个职责清晰的 Agent——`instruction_agent`（LLM 语义解析）、`inventory_agent`（LLM 工单创建）、`agv_agent`（纯算法批量调度），由 Supervisor 编排
-- **LLM 与调度解耦**：LLM 只负责语义理解和工单创建，AGV 调度完全由确定性算法承担，符合工业界 AGV 调度架构共识
-- **异步批量调度**：Celery 异步处理 LLM 推理，工单积累到阈值或超时后由 `agv_agent` 批量调度，兼顾响应速度与全局优化
-- **vLLM 工具调用推理**：PagedAttention + prefix caching，`qwen3_xml` tool-call 解析器支持原生 function calling
-- **双模式RAG**：传统向量检索 + GraphRAG 知识图谱（Neo4j 持久化 + 实体三元组展开）
-- **AGV仓储调度**：四层调度架构（WMS→WES→Fleet→Simulation），含聚类、TSP、Regret-2全局优化
-- **REST API服务**：FastAPI 事件驱动调度接口，Redis 双队列（普通/紧急），支持全链路异步处理
-- **多模态输入**：音频、文本、图像统一处理
-- **结构化输出**：Pydantic `WorkOrder` 模型，库存不足自动生成补货单
+- 多模态输入：文本、图片 base64、音频 base64/文件，音频由 Whisper 转写。
+- Agent 指令解析：基于 LangGraph/LangChain 的 ReAct Agent 与 Supervisor 多智能体流水线。
+- 知识增强：传统 RAG（BGE-M3 + BM25 + reranker）与 GraphRAG（LlamaIndex PropertyGraphIndex + Neo4j）。
+- 库存工单：SQLite 库存、库存预留/确认/释放、缺货补货单生成。
+- AGV 调度：精确 batch 键聚类、A* 路径规划、OR-Tools TSP、Regret-2 分配、充电调度与指标统计。
+- API 服务：FastAPI + Redis/Celery，可在 vLLM 在线时异步跑 Agent，离线时降级为规则解析。
 
----
+## 目录
 
-## 系统一：ReAct Agent 港口指令解析
+- [系统架构](#系统架构)
+- [快速开始](#快速开始)
+- [运行入口](#运行入口)
+- [REST API](#rest-api)
+- [RAG 与 Neo4j](#rag-与-neo4j)
+- [AGV 调度](#agv-调度)
+- [配置](#配置)
+- [测试](#测试)
+- [项目结构](#项目结构)
+- [故障排查](#故障排查)
 
-港口指令解析由 **LangGraph ReAct Agent** 驱动（`src/agent/`）。Agent 接收多模态输入，自主决定是否调用工具补全信息，最终组装成可直接下发的 `WorkOrder`。
+## 系统架构
 
-### 多模态输入支持
-- **音频输入**：支持实时录音（5秒）和音频文件（WAV、MP3、M4A、FLAC、OGG），经 Whisper 转写后送入 Agent
-- **文本输入**：直接输入文本指令或文本文件
-- **图像输入**：支持图片分析（JPG、PNG、BMP、WebP），以 base64 image_url 传给 VLM
+### 端到端链路
 
-### Agent 工具集
-
-| 工具 | 文件 | 触发时机 | 作用 |
-|------|------|----------|------|
-| `query_knowledge_base` | `tools/knowledge_tool.py` | 备件名称/型号不明确时由 LLM 调用 | 从 RAG 知识库检索补全（traditional 或 graph 模式自动初始化） |
-| `query_inventory` | `tools/inventory_tool.py` | 字段提取完成后由 LLM 调用 | 查询 SQLite 库存，返回可用量/储位/缺口 |
-| `create_restock` | `tools/order_tool.py` | 出库且库存不足时由**代码**调用（非 LLM） | 自动生成补货入库订单，order_id 写入 `WorkOrder.metadata` |
-
-> Agent LLM 通过 `ChatOpenAI` 指向 vLLM 的 OpenAI 兼容端点（`base_port + 1`，即 Qwen3.5），`temperature=0`、关闭 thinking。系统提示见 `config/prompts.yaml` 的 `agent.system`。
-
-### RAG知识增强
-- **传统RAG**：基于BGE-M3向量和BM25混合检索
-- **GraphRAG**：基于 LlamaIndex `PropertyGraphIndex` + **Neo4j** 持久化，支持向量+同义词子检索与实体三元组展开
-- **重排序**：使用BGE-reranker-v2-m3优化结果
-
-### 数据流
-
-```
-输入 (Audio/Text/Image)
-  → ASR (Whisper) → Text
-  → ReAct Agent (LangGraph, vLLM Qwen3.5)
-       ├─ query_knowledge_base  (RAG: Traditional / Neo4j Graph)
-       └─ query_inventory       (SQLite 库存)
-  → 解析最终 JSON → PortInstruction → OrderManager
-  → WorkOrder（出库缺货时附带 create_restock 补货单）
+```text
+文本 / 图片 / 音频
+  -> ASR / VLM / 规则解析
+  -> instruction_agent 解析语义
+  -> inventory_agent 查询库存并创建 WorkOrder
+  -> Redis / 内存队列聚合批次
+  -> agv_agent 调用确定性调度算法
+  -> TaskDecomposer -> Clusterer -> FleetManager -> Simulator
+  -> 调度指标 / GIF 动画 / 库存确认或释放
 ```
 
----
+### 多智能体分工
 
-## 系统二：AGV 智能仓储调度
+| 模块 | 文件 | 职责 |
+| --- | --- | --- |
+| Supervisor | `src/agents/supervisor.py` | 编排指令解析与库存工单创建 |
+| Instruction Agent | `src/agents/instruction_agent.py` | LLM 语义解析，可查询知识库 |
+| Inventory Agent | `src/agents/inventory_agent.py` | 查询库存并生成 `WorkOrder` |
+| AGV Agent | `src/agents/agv_agent.py` | 纯算法批量调度，不依赖 LLM |
+| 单 Agent 兼容入口 | `src/agent/agent.py` | `main_interaction.py` 使用的 ReAct Agent |
 
-基于四层调度架构的AGV仓储仿真系统，支持双向batch优化（OUTBOUND多取一送 + INBOUND一取多送）。
+LLM 只参与语义理解、信息补全和工单创建；AGV 分配、路径规划和仿真由确定性算法完成。
 
-### 架构
+## 快速开始
 
-```
-WMS层：订单生成、库存管理（SQLite WAL双表）、任务分解
-  ↓
-WES层：方向感知聚类（精确batch键分组）
-  ↓
-Fleet层：Regret-2全局分配 → 簇间TSP排序 → 逐簇TSP排序 → 路径规划
-  ↓
-Simulation层：AGV仿真执行、充电调度、指标统计
-```
+### 1. 环境要求
 
-### 调度流程
+- Python 3.10+
+- FFmpeg（音频处理）
+- Redis（API 异步 Agent/Celery 模式需要；不可用时 API 会降级为内存队列）
+- Neo4j 5.x + APOC（GraphRAG 需要）
+- CUDA GPU（运行 vLLM、Whisper 大模型、embedding/reranker 时推荐）
 
-```
-随机/VLM工单 → 任务分解(TransportTask)
-  → 聚类(按精确dest/pick分组 → 空间合并 → 容量拆分)
-  → Regret-2分配(簇→AGV, 最小化makespan)
-  → 簇间TSP排序(OR-Tools)
-  → 逐簇TSP排序(OR-Tools, 双向batch)
-  → A*路径规划(方向感知)
-  → 仿真执行(自动检测batch + 充电管理)
-```
-
-### 核心优化模块
-
-| 模块 | 算法 | 说明 |
-|------|------|------|
-| M1 路径缓存 | BFS预计算 | 预计算所有关键节点对的最短路径 |
-| M2 聚类 | 精确batch键 + Ward层次聚类 | 按dest/pick精确分组，空间合并相近组 |
-| M3 TSP | OR-Tools TSP | 簇间排序 + 簇内双向batch排序 |
-| M4 Regret-2 | Makespan-aware Regret-2 | 全局簇→AGV分配，三元组评分键最小化makespan |
-
-### 消融实验结果
-
-10组随机种子（42, 123, 456, 789, 2024, 3141, 6666, 9999, 12345, 54321）均值：
-
-| 实验 | makespan | 距离 | 边际提升 |
-|------|----------|------|---------|
-| Baseline (无优化) | 1933 | 8616 | - |
-| M1+M2 (+聚类) | 1033 | 3790 | 46.5% |
-| M1+M2+M3 (+TSP) | 643 | 1849 | 37.8% |
-| M1+M2+M3+M4 (+Regret-2) | 590 | 1700 | 8.2% |
-| **总改善** | **-69.5%** | **-80.3%** | |
-
-### 地图配置
-
-57×47网格仓库地图：
-- 3×3=9个行列式货架区域（14×10储位）
-- 6个端口（3入3出）
-- 主通道3格宽 + 巷道1格单向
-- 8台AGV + 4个充电桩
-
-### 运行方式
+### 2. 安装
 
 ```bash
-# 纯仿真
+cd /home/catlab/wh/wh_graphrag_re
+
+python -m venv .venv
+source .venv/bin/activate
+
+pip install -r requirements.txt
+```
+
+如需手动安装 PyTorch，请按本机 CUDA 版本选择对应 wheel。例如 CUDA 12.8：
+
+```bash
+pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu128
+```
+
+Linux 安装 FFmpeg：
+
+```bash
+sudo apt-get install ffmpeg
+```
+
+### 3. 配置环境变量
+
+```bash
+cp .env.example .env
+```
+
+至少检查这些项：
+
+```ini
+# vLLM / VLM
+VLM_MODEL_TYPE=qwen35
+VLM35_MODEL=Qwen/Qwen3.5-4B
+VLLM_SERVER_BASE_PORT=8000
+VLLM_OFFLINE=true
+
+# Redis / Celery
+REDIS_URL=redis://localhost:6379/0
+REDIS_RESULT_URL=redis://localhost:6379/1
+SCHEDULER_WINDOW_SECONDS=30
+SCHEDULER_SIZE_THRESHOLD=10
+
+# GraphRAG / Neo4j
+RAG_ENABLED=true
+RAG_GRAPH_ENABLED=true
+NEO4J_URI=bolt://localhost:7687
+NEO4J_USERNAME=neo4j
+NEO4J_PASSWORD=your-password
+GRAPH_RAG_DEEPSEEK_API_KEY=your-api-key
+```
+
+### 4. 最小可运行命令
+
+不依赖 GPU、不依赖 vLLM 的 AGV 仿真：
+
+```bash
 python main_simulation.py
-
-# 指定地图和订单数
-python main_simulation.py medium_57x47 40
-
-# 带动画
-python main_simulation.py --animate medium_57x47_cluster 40
-
-# 消融实验（4级对比）
+python main_simulation.py --animate medium_57x47 40
 python main_simulation.py --ablation
 ```
 
-### 仓库模块结构
-
-```
-src/warehouse/
-  models.py              - Pydantic v2 数据模型
-  maps/
-    base.py              - 地图注册基类
-    medium_57x47.py      - 57×47 仓库地图定义
-    medium_57x47_cluster.py - 同布局，AGV起点聚集（负载均衡压力测试）
-  wms/
-    config.py            - 全局配置（Pydantic Settings）
-    inventory.py         - 内存库存管理（轻量版）
-    inventory_db.py      - SQLite持久化库存（WAL模式，双表，三阶段reserve/confirm/release）
-    order_manager.py     - 工单生成（随机/VLM）
-  wes/
-    task_decomposer.py   - 任务分解
-    clustering.py        - 精确batch键聚类
-  fleet/
-    map_builder.py       - 仓库地图构建（区域、端口、通道）
-    pathfinding.py       - A*路径规划（方向感知+缓存）
-    tsp.py               - OR-Tools TSP（双向batch）
-    allocator.py         - Makespan-aware Regret-2分配 + 贪心降级
-    charging.py          - 充电调度
-    fleet_manager.py     - Fleet层总编排
-  simulation/
-    agv.py               - AGV仿真模型
-    simulator.py         - 仿真执行引擎
-    metrics.py           - 指标统计
-```
-
----
-
-## 系统三：REST API 服务
-
-FastAPI 服务，提供从港口指令解析到 AGV 调度的完整异步链路。
-
-### 多智能体数据流
-
-```
-POST /instructions (文本/音频/图像)
-  │
-  ├─ VLM 在线 → Celery 异步任务
-  │     └─ Supervisor（LLM 两步流水线）
-  │           ├─ instruction_agent：语义解析
-  │           └─ inventory_agent：查库存 + 建工单
-  │                 ↓ WorkOrder 推入 Redis 队列
-  │
-  └─ VLM 离线 → 规则解析（降级），WorkOrder 直接入队
-  
-  队列（Redis / 内存，满10条 OR 30秒超时 OR URGENT）
-  └─ scheduler_loop 触发
-        └─ agv_agent.run()（纯算法）
-              TaskDecomposer → Clusterer → Fleet → Simulator
-              → 成功 confirm / 失败 release 库存预留
-              → 结果存储 (GET /result/{run_id})
-```
-
-### API 端点
-
-| 方法 | 路径 | 说明 |
-|------|------|------|
-| `POST` | `/instructions` | 提交港口指令，返回 instruction_id |
-| `GET` | `/agent-result/{id}` | 查询单条指令的 LLM 处理结果（WorkOrder） |
-| `GET` | `/status` | 查看队列状态和调度状态 |
-| `GET` | `/result/{run_id}` | 获取批次调度结果（makespan、距离、利用率等） |
-| `GET` | `/result/{run_id}/animation` | 按需生成并下载调度动画 GIF |
-
-### 启动 API 服务
+API 规则解析降级模式：
 
 ```bash
-python main_api.py             # 默认 0.0.0.0:8000
-python main_api.py --port 9000  # 自定义端口
+python main_api.py
+curl -X POST http://localhost:8000/instructions \
+  -H "Content-Type: application/json" \
+  -d '{"text":"出库2个深沟球轴承，型号6208-2RS-C3-SKF"}'
 ```
 
-### API 调用示例
+完整 Agent 模式需要先启动 Redis、vLLM 和 Celery Worker：
 
-#### 1. 文本指令（最常用）
+```bash
+redis-server
+VLM_MODEL_TYPE=qwen35 python start_vlm_server.py
+python main_worker.py
+python main_api.py
+```
+
+## 运行入口
+
+| 命令 | 用途 |
+| --- | --- |
+| `python main_simulation.py [map] [order_num]` | 纯 AGV 仿真 |
+| `python main_simulation.py --animate medium_57x47 40` | 仿真并输出 `output/animation.gif` |
+| `python main_simulation.py --ablation [map] [order_num]` | 消融实验 |
+| `python main_agv.py` | 菜单式 AGV 演示入口 |
+| `python main_interaction.py` | 多模态 ReAct Agent 交互式解析 |
+| `python main_rag.py` | 传统 RAG / GraphRAG CLI |
+| `python start_vlm_server.py` | 启动 vLLM OpenAI 兼容服务 |
+| `python status_vlm_server.py` | 检查 vLLM 服务状态 |
+| `python main_api.py --host 0.0.0.0 --port 8000` | 启动 FastAPI 服务 |
+| `python main_worker.py --concurrency 2 --queues urgent,default` | 启动 Celery Worker |
+| `python restock_inventory.py --qty 100` | 补充 SQLite 库存 |
+| `python test_api_batch.py --animation` | 批量提交 10 条指令并下载调度动画 |
+
+## REST API
+
+服务入口：`main_api.py`，默认监听 `0.0.0.0:8000`。
+
+### 工作模式
+
+- `vlm_available=true`：API 把请求交给 Celery，Worker 调用 Supervisor/Agent 生成 `WorkOrder`，写入 Redis 队列。
+- `vlm_available=false`：API 使用 `PortInstructionParser` 规则解析降级，同步创建 `WorkOrder` 并入队。
+- 调度触发条件：紧急订单、普通队列数量达到 `SCHEDULER_SIZE_THRESHOLD`，或等待超过 `SCHEDULER_WINDOW_SECONDS`。
+
+### 端点
+
+| 方法 | 路径 | 说明 |
+| --- | --- | --- |
+| `POST` | `/instructions` | 提交文本/音频/图像指令 |
+| `GET` | `/agent-result/{instruction_id}` | 查询 Celery Agent 处理结果 |
+| `GET` | `/status` | 查询队列、最近批次和调度状态 |
+| `GET` | `/result/{run_id}` | 查询批次调度结果 |
+| `GET` | `/result/{run_id}/animation` | 按需生成并下载 GIF 动画 |
+
+### 请求示例
+
+文本指令：
 
 ```bash
 curl -X POST http://localhost:8000/instructions \
   -H "Content-Type: application/json" \
-  -d '{"text": "需要2个弹性爪型联轴器，型号为GS-28-98A-LOVEJOY"}'
+  -d '{"text":"紧急出库1台三相异步电动机，型号Y160M-4-11kW-ABB"}'
 ```
+
+响应示例：
 
 ```json
 {
   "instruction_id": "a3f1c2d4-...",
   "status": "queued",
-  "vlm_available": true,
+  "vlm_available": false,
   "parsed": {
-    "part_name": "抗磨液压油",
-    "quantity": 2,
-    "model": "L-HM46-200L-KUNLUN",
-    "action_required": "出库",
+    "part_name": "三相异步电动机",
+    "quantity": 1,
+    "model": "Y160M-4-11kW-ABB",
+    "action_required": null,
     "is_urgent": false,
     "description": null
-  },
-  "resolved_location": "Cons1_R1_B2",
-  "resolved_en_name": "Anti-Wear Hydraulic Oil",
-  "target_port": "OUT_1"
+  }
 }
 ```
 
-#### 2. 音频文件指令
-
-```bash
-# 将音频文件编码为 base64 后提交
-AUDIO_B64=$(base64 -w0 /path/to/audio.wav)
-
-curl -X POST http://localhost:8000/instructions \
-  -H "Content-Type: application/json" \
-  -d "{\"audio_base64\": \"$AUDIO_B64\"}"
-```
+图片或音频指令使用 base64 字段：
 
 ```python
-import base64, requests
-
-with open("audio.wav", "rb") as f:
-    audio_b64 = base64.b64encode(f.read()).decode()
-
-resp = requests.post("http://localhost:8000/instructions",
-                     json={"audio_base64": audio_b64})
-print(resp.json())
-```
-
-#### 3. 图像指令
-
-```python
-import base64, requests
+import base64
+import requests
 
 with open("image.jpg", "rb") as f:
-    image_b64 = base64.b64encode(f.read()).decode()
+    image_base64 = base64.b64encode(f.read()).decode()
 
-resp = requests.post("http://localhost:8000/instructions",
-                     json={"image_base64": image_b64})
+resp = requests.post(
+    "http://localhost:8000/instructions",
+    json={"text": "识别图片中的备件并出库", "image_base64": image_base64},
+)
 print(resp.json())
 ```
 
-#### 4. 查询队列和调度状态
+查询批次结果：
 
 ```bash
 curl http://localhost:8000/status
+curl http://localhost:8000/result/<run_id>
+curl -o schedule.gif http://localhost:8000/result/<run_id>/animation
 ```
 
-```json
-{
-  "queue_size": 3,
-  "last_run_id": "b7e2a1f3-...",
-  "last_run_at": "2026-05-11T17:30:00.123456",
-  "scheduler_status": "idle"
-}
-```
-
-`scheduler_status` 取值：`"idle"`（空闲）、`"failed"`（上次调度失败）。
-
-#### 5. 获取调度结果
-
-调度在满足触发条件（≥10条 / 30秒超时 / URGENT工单）后自动执行，结果通过 `last_run_id` 或 `instruction_id` 查询：
-
-```bash
-curl http://localhost:8000/result/b7e2a1f3-...
-```
+`/result/{run_id}` 返回：
 
 ```json
 {
@@ -298,470 +241,168 @@ curl http://localhost:8000/result/b7e2a1f3-...
   "total_distance": 1843,
   "agv_utilization": 0.784,
   "planning_time": 2.31,
-  "instructions": [
-    "需要2桶抗磨液压油出库",
-    "入库3个深沟球轴承",
-    "..."
-  ],
+  "instructions": ["..."],
   "has_animation": true
 }
 ```
 
-#### 6. 下载调度动画
+## RAG 与 Neo4j
+
+项目支持两套检索：
+
+- 传统 RAG：`src/rag/traditional.py`，基于知识库 markdown、BGE-M3 embedding、BM25、RRF 融合和 BGE reranker。
+- GraphRAG：`src/rag/graph.py`，基于 LlamaIndex `PropertyGraphIndex` 与 Neo4j 持久化图谱，支持 vector/synonym 子检索器和实体关系展开。
+
+知识库目录：
+
+```text
+data/knowledge_base/
+  01_mechanical_parts.md
+  02_electrical_parts.md
+  03_consumable_parts.md
+  04_safety_equipment.md
+  05_tools.md
+```
+
+启动 Neo4j 后运行：
 
 ```bash
-curl -o animation.gif \
-  http://localhost:8000/result/b7e2a1f3-.../animation
+python main_rag.py
 ```
 
-```python
-resp = requests.get("http://localhost:8000/result/b7e2a1f3-.../animation")
-with open("animation.gif", "wb") as f:
-    f.write(resp.content)
+常用命令：
+
+```text
+status / stats    查看状态
+rebuild           重建索引或图谱
+quit              退出
 ```
 
-#### 7. 错误响应
+Neo4j 安装、APOC 配置和图谱清理见 [NEO4J.md](NEO4J.md) 与 [docs/neo4j_setup.md](docs/neo4j_setup.md)。
 
-| HTTP 状态码 | `error` 字段 | 含义 |
-|-------------|-------------|------|
-| 400 | `parse_failed` | 无有效输入或解析结果为空 |
-| 409 | `insufficient_stock` | 库存不足，含 `requested` 和 `available` 字段 |
-| 422 | `invalid_base64` | base64 解码失败，含 `field` 字段 |
-| 404 | — | run_id 不存在或动画未生成 |
+## AGV 调度
+
+### 四层架构
+
+```text
+WMS: 订单生成、库存管理、任务分解
+  -> WES: 精确 batch 键聚类、空间合并、容量拆分
+  -> Fleet: Regret-2 分配、簇间/簇内 TSP、A* 路径规划、充电策略
+  -> Simulation: AGV 执行仿真、冲突处理、指标统计
+```
+
+### 关键优化
+
+| 模块 | 实现 | 说明 |
+| --- | --- | --- |
+| M1 路径缓存 | `src/warehouse/fleet/pathfinding.py` | 预计算关键点对最短路 |
+| M2 聚类 | `src/warehouse/wes/clustering.py` | 按出入库方向与目标端口分组 |
+| M3 TSP | `src/warehouse/fleet/tsp.py` | OR-Tools 优化簇间/簇内访问顺序 |
+| M4 分配 | `src/warehouse/fleet/allocator.py` | Makespan-aware Regret-2 全局分配 |
+
+### 地图
+
+当前注册地图：
+
+- `medium_57x47`：57x47 仓库地图，9 个货架区域、6 个端口、8 台 AGV、4 个充电桩。
+- `medium_57x47_cluster`：同布局但 AGV 初始位置聚集，用于负载均衡压力测试。
+
+地图相关文件位于 `src/warehouse/maps/`，可视化工具在 `src/warehouse/visualize_map.py` 和 `src/warehouse/visualize_animation.py`。
+
+## 配置
+
+### 应用配置
+
+`src/common/config.py` 从项目根目录 `.env` 读取配置，覆盖 ASR、VLM、RAG、GraphRAG、Neo4j、Redis、vLLM 等模块。
+
+### 仓库调度配置
+
+`src/warehouse/wms/config.py` 使用 `WH_` 前缀环境变量覆盖：
+
+| 参数 | 默认值 | 说明 |
+| --- | --- | --- |
+| `WH_MAP_NAME` | `medium_57x47` | 默认地图 |
+| `WH_ORDER_NUM` | `40` | 默认随机订单数 |
+| `WH_RANDOM_SEED` | `100` | 随机种子 |
+| `WH_AGV_MAX_TASK_CAPACITY` | `20` | 单 AGV 任务容量 |
+| `WH_TSP_TIME_LIMIT` | `1` | TSP 求解时限，单位秒 |
+| `WH_A_MAX_SEARCH` | `50000` | A* 最大搜索步数 |
+
+示例：
 
 ```bash
-# 库存不足示例
-curl -X POST http://localhost:8000/instructions \
-  -H "Content-Type: application/json" \
-  -d '{"text": "需要100个深沟球轴承"}'
+WH_ORDER_NUM=80 WH_RANDOM_SEED=42 python main_simulation.py
 ```
 
-```json
-{
-  "detail": {
-    "error": "insufficient_stock",
-    "part_name": "深沟球轴承",
-    "requested": 100,
-    "available": 5
-  }
-}
-```
+## 测试
 
-#### 8. Python 完整调用流程
-
-```python
-import time
-import requests
-
-BASE = "http://localhost:8000"
-
-# 批量提交指令
-instructions = [
-    "需要2桶抗磨液压油出库",
-    "入库3个深沟球轴承",
-    "紧急出库1台三相异步电动机",
-]
-ids = []
-for text in instructions:
-    r = requests.post(f"{BASE}/instructions", json={"text": text})
-    r.raise_for_status()
-    ids.append(r.json()["instruction_id"])
-    print(f"已入队: {r.json()['parsed']['part_name']} → {r.json()['target_port']}")
-
-# 等待调度完成
-while True:
-    status = requests.get(f"{BASE}/status").json()
-    print(f"队列: {status['queue_size']} 条, 调度: {status['scheduler_status']}")
-    if status["queue_size"] == 0 and status["last_run_id"]:
-        run_id = status["last_run_id"]
-        break
-    time.sleep(5)
-
-# 获取结果
-result = requests.get(f"{BASE}/result/{run_id}").json()
-print(f"makespan={result['makespan']} 步, "
-      f"距离={result['total_distance']}, "
-      f"利用率={result['agv_utilization']:.1%}")
-
-# 下载动画
-gif = requests.get(f"{BASE}/result/{run_id}/animation")
-with open("schedule.gif", "wb") as f:
-    f.write(gif.content)
-print("动画已保存为 schedule.gif")
-```
-
-#### 9. 多品类批量调度（10 条真实数据，可直接运行）
-
-以下零件名称和型号均来自 `inventory_db.py` 的库存目录（`_PARTS_CATALOG`），10 条指令提交后自动触发批量调度（`SIZE_THRESHOLD=10`）。
-
-**Python 一键运行脚本：**
-
-```python
-import time
-import requests
-
-BASE = "http://localhost:8000"
-
-# 10 条指令覆盖 5 个品类（机械/电气/耗材/安全/工具）
-instructions = [
-    "出库2个深沟球轴承，型号6208-2RS-C3-SKF",
-    "出库1台三相异步电动机，型号Y160M-4-11kW-ABB",
-    "出库1桶抗磨液压油，型号L-HM46-200L-KUNLUN",
-    "出库1个ABS工程安全帽，型号VGard-E2-WHT-MSA",
-    "出库1把液压力矩扳手，型号HTW-3400Nm-ENERPAC",
-    "出库1个弹性爪型联轴器，型号ROTEX-48-98ShA-KTR",
-    "出库1台变频调速器，型号ACS580-039A-ABB",
-    "出库1个高压液压油滤芯，型号HF-250x20Q-HYDAC",
-    "出库1副防冲击护目镜，型号VMaxx-OTG-CLR-UVEX",
-    "出库1台数字钳形万用表，型号F325-600V-FLUKE",
-]
-
-print("=== 提交 10 条指令 ===")
-for text in instructions:
-    r = requests.post(f"{BASE}/instructions", json={"text": text})
-    r.raise_for_status()
-    d = r.json()
-    print(f"[{d['parsed']['part_name']}]  位置={d['resolved_location']}  端口={d['target_port']}")
-
-print("\n=== 等待调度完成 ===")
-while True:
-    status = requests.get(f"{BASE}/status").json()
-    print(f"  队列: {status['queue_size']} 条 | 调度状态: {status['scheduler_status']}")
-    if status["queue_size"] == 0 and status["last_run_id"]:
-        run_id = status["last_run_id"]
-        break
-    time.sleep(3)
-
-print("\n=== 调度结果 ===")
-result = requests.get(f"{BASE}/result/{run_id}").json()
-print(f"  run_id       : {result['run_id']}")
-print(f"  工单数        : {result['order_count']}")
-print(f"  makespan     : {result['makespan']} 步")
-print(f"  总移动距离    : {result['total_distance']}")
-print(f"  AGV 利用率   : {result['agv_utilization']:.1%}")
-print(f"  规划耗时      : {result['planning_time']:.2f}s")
-
-print("\n=== 下载动画 ===")
-gif = requests.get(f"{BASE}/result/{run_id}/animation")
-with open("schedule.gif", "wb") as f:
-    f.write(gif.content)
-print("  动画已保存 → schedule.gif")
-```
-
-**等效的 curl 命令（逐条提交）：**
+运行全部测试：
 
 ```bash
-BASE=http://localhost:8000
-
-curl -s -X POST $BASE/instructions -H "Content-Type: application/json" \
-  -d '{"text": "出库2个深沟球轴承，型号6208-2RS-C3-SKF"}'
-
-curl -s -X POST $BASE/instructions -H "Content-Type: application/json" \
-  -d '{"text": "出库1台三相异步电动机，型号Y160M-4-11kW-ABB"}'
-
-curl -s -X POST $BASE/instructions -H "Content-Type: application/json" \
-  -d '{"text": "出库1桶抗磨液压油，型号L-HM46-200L-KUNLUN"}'
-
-curl -s -X POST $BASE/instructions -H "Content-Type: application/json" \
-  -d '{"text": "出库1个ABS工程安全帽，型号VGard-E2-WHT-MSA"}'
-
-curl -s -X POST $BASE/instructions -H "Content-Type: application/json" \
-  -d '{"text": "出库1把液压力矩扳手，型号HTW-3400Nm-ENERPAC"}'
-
-curl -s -X POST $BASE/instructions -H "Content-Type: application/json" \
-  -d '{"text": "出库1个弹性爪型联轴器，型号ROTEX-48-98ShA-KTR"}'
-
-curl -s -X POST $BASE/instructions -H "Content-Type: application/json" \
-  -d '{"text": "出库1台变频调速器，型号ACS580-039A-ABB"}'
-
-curl -s -X POST $BASE/instructions -H "Content-Type: application/json" \
-  -d '{"text": "出库1个高压液压油滤芯，型号HF-250x20Q-HYDAC"}'
-
-curl -s -X POST $BASE/instructions -H "Content-Type: application/json" \
-  -d '{"text": "出库1副防冲击护目镜，型号VMaxx-OTG-CLR-UVEX"}'
-
-curl -s -X POST $BASE/instructions -H "Content-Type: application/json" \
-  -d '{"text": "出库1台数字钳形万用表，型号F325-600V-FLUKE"}'
-
-# 等调度完成后查结果（用 /status 中的 last_run_id）
-curl -s $BASE/status
-curl -s $BASE/result/<run_id>
-curl -o schedule.gif $BASE/result/<run_id>/animation
+pytest
 ```
 
-> **说明**：上述零件名称与型号均来自 `inventory_db.py` 的 `_PARTS_CATALOG`，每条指令请求数量≤2，低于数据库初始库存（seeded 5～20），提交后必然命中库存。API 服务使用规则解析（VLM 未启动时降级），通过零件名 LIKE 匹配定位储位后执行 `reserve`，10 条触发批量调度。
-
-### 模块结构
-
-```
-src/agents/
-  supervisor.py        - Supervisor：编排两步 LLM 流水线，返回 WorkOrder
-  instruction_agent.py - LLM Agent：语义解析，工具：query_knowledge_base
-  inventory_agent.py   - LLM Agent：库存查询 + 工单创建
-  agv_agent.py         - 纯算法 Agent：批量 AGV 调度（TaskDecomposer→Clusterer→Fleet→Sim）
-
-src/api/
-  app.py               - FastAPI 工厂函数（依赖注入，便于测试）
-  celery_app.py        - Celery 任务定义（process_order / process_order_urgent）
-  models.py            - 请求/响应 Pydantic 模型
-  queue_manager.py     - 工单队列（内存 / Redis，含 urgent 优先队列和重试）
-  scheduler.py         - 后台协程：等待队列触发条件，调用 agv_agent.run()
-```
-
----
-
-## 快速开始
-
-### 1. 环境要求
-
-- Python 3.10+
-- PyTorch 2.10.0（CUDA 12.8）
-- FFmpeg（音频处理）
-- **Neo4j 5.x + APOC 插件**（GraphRAG 模式必需，安装见 `docs/neo4j_setup.md` / [NEO4J.md](NEO4J.md)）
-- 可选：sounddevice（实时录音）
-
-### 2. 安装依赖
+只跑不依赖 vLLM 的冒烟链路：
 
 ```bash
-git clone https://github.com/sunofch/wh_ai.git
-cd wh_ai
-
-# 安装核心依赖
-pip install -r requirements.txt
-
-# 安装PyTorch（推荐CUDA 12.8）
-pip install torch==2.10.0 torchvision==0.25.0 torchaudio==2.10.0 --index-url https://download.pytorch.org/whl/cu128
-
-# 安装FFmpeg（Linux）
-sudo apt-get install ffmpeg
+pytest tests/test_smoke.py
 ```
 
-### 3. 环境配置
+API 批量端到端脚本：
 
 ```bash
-cp .env.example .env
-# 编辑 .env 配置 API Key 等
-```
-
-### 4. 运行
-
-```bash
-# GraphRAG 模式前先启动 Neo4j（首次运行自动构建图谱）
-sudo neo4j start
-
-# 港口指令解析（需先启动 vLLM Qwen3.5 服务器）
-VLM_MODEL_TYPE=qwen35 python start_vlm_server.py   # 终端1：启动服务器
-python main_interaction.py                          # 终端2：ReAct Agent 交互式解析
-
-# AGV调度+指令解析整合入口（菜单：单条/批量/仿真/消融/选图）
-python main_agv.py
-
-# AGV仓储调度仿真（无需GPU，纯CPU即可）
-python main_simulation.py --ablation
-
-# REST API服务（可选：不启动vLLM则降级为规则解析）
-python main_api.py
-
-# 补充库存（首次运行或库存耗尽时）
-python restock_inventory.py --qty 100
-
-# 端到端批量调度测试（提交10条指令→等待所有批次调度→打印结果）
 python test_api_batch.py
-python test_api_batch.py --animation   # 同时下载调度动画 GIF
+python test_api_batch.py --animation
 ```
-
----
-
-## 港口指令解析详细说明
-
-### vLLM 服务器管理
-
-vLLM 服务器需独立启动，多个程序可共享使用：
-
-```bash
-python start_vlm_server.py     # 启动（根据 VLM_MODEL_TYPE 自动选择模型）
-python status_vlm_server.py    # 查看状态
-# 停止：kill $(cat /tmp/vlm_server.pid) 或 Ctrl+C
-```
-
-服务器启动时附带 `--enable-auto-tool-choice --tool-call-parser qwen3_xml --enable-prefix-caching`，以支持 ReAct Agent 的原生工具调用与前缀缓存加速。
-
-**模型对比**：
-- **Qwen2-VL-2B**（~5GB，端口 `base_port`）：推理速度快，适合资源受限环境
-- **Qwen3.5-4B**（~9GB，端口 `base_port + 1`）：支持 function calling，**ReAct Agent 必须使用此模型**
-
-通过 `VLM_MODEL_TYPE=qwen2` 或 `qwen35` 切换。Agent 流程（`main_interaction.py` / `main_api.py` 的 VLM 模式）需 Qwen3.5 服务运行中。
-
-### 交互式使用
-
-```bash
-python main_interaction.py
-```
-
-- 输入文本指令：`需要更换3号传送带的电机`
-- 拖入图片/音频文件
-- 实时录音：输入 `r`（5秒）
-- RAG管理：`rag:status` / `rag:enable` / `rag:disable` / `rag:rebuild`
-
-### 输出格式（WorkOrder）
-
-`main_interaction.py` 的 `print_result` 打印 Agent 组装的 `WorkOrder` 摘要：
-
-```
-────────────────────────────────────────
-【WorkOrder 摘要】
-  备件: 深沟球轴承  型号: 6208-2RS-C3-SKF  数量: 2  类型: OUTBOUND
-  取货位: Mech1_R1_B1  → 送货位: OUT_1
-  ⚠ 补货单: RS-1A2B3C4D    （仅出库缺货时出现）
-────────────────────────────────────────
-```
-
-`WorkOrder` 结构（`src/warehouse/models.py`）：
-
-```python
-WorkOrder(
-  order_id=0,
-  source="vlm",                 # vlm | batch | file | random
-  priority=OrderPriority.NORMAL,
-  items=[OrderItem(task_type=TaskType.OUTBOUND, model="...", part_name="...",
-                   quantity=2, resolved_pick="Mech1_R1_B1", resolved_dest="OUT_1")],
-  metadata={"restock_order_id": "RS-..."},
-)
-```
-
-### 编程调用示例
-
-```python
-from src.agent import run_agent
-
-# 文本指令 → WorkOrder（需 vLLM Qwen3.5 服务运行中）
-order = run_agent(text="需要2个深沟球轴承，型号6208-2RS-C3-SKF", verbose=True)
-print(order.model_dump())
-
-# 图片指令
-order = run_agent(image="/path/to/order.jpg")
-```
-
----
-
-## 配置说明
-
-### 港口指令解析配置（.env）
-
-```ini
-# ASR
-ASR_MODEL=large-v3-turbo
-ASR_LANGUAGE=zh
-
-# VLM
-VLM_MODEL_TYPE=qwen2              # qwen2 或 qwen35
-
-# RAG
-RAG_ENABLED=true
-RAG_GRAPH_ENABLED=true
-RAG_EMBEDDING_MODEL=BAAI/bge-m3
-GRAPH_RAG_DEEPSEEK_API_KEY=xxx     # GraphRAG 三元组抽取所需
-
-# Neo4j（GraphRAG 图谱存储后端，替代旧的本地 JSON）
-NEO4J_URI=bolt://localhost:7687
-NEO4J_USERNAME=neo4j
-NEO4J_PASSWORD=your-password
-NEO4J_DATABASE=neo4j
-
-# include_text=false 返回主语实体的全部三元组（精准）；true 附带原始文档块
-GRAPH_RETRIEVAL_VECTOR_INCLUDE_TEXT=false
-```
-
-> ReAct Agent 复用 `VLM35_MODEL` / `VLLM_SERVER_BASE_PORT`：Agent LLM 连接 `base_port + 1` 端口的 Qwen3.5 服务。详细 Neo4j 操作见 [NEO4J.md](NEO4J.md)。
-
-### AGV调度配置（src/warehouse/wms/config.py）
-
-| 参数 | 默认值 | 说明 |
-|------|--------|------|
-| `AGV_MOVE_TIME` | 1 | 移动一格时间 |
-| `AGV_LOAD_UNLOAD_TIME` | 8 | 装卸时间 |
-| `AGV_LOW_BATTERY_THRESHOLD` | 20 | 低电量阈值 |
-| `AGV_CHARGE_TIME` | 20 | 充满电时间 |
-| `ORDER_NUM` | 40 | 订单数量 |
-| `TSP_TIME_LIMIT` | 1 | TSP求解时限(秒) |
-| `RANDOM_SEED` | 42 | 随机种子 |
-
-消融开关（`src/warehouse/models.py` `AblationFlags`，batch 常驻不关闭）：
-- `enable_path_cache`：M1 路径缓存
-- `enable_clustering`：M2 方向感知空间聚类
-- `enable_tsp`：M3 OR-Tools TSP排序
-
-> M4 Regret-2 全局分配在 `main_simulation.py --ablation` 的对比流程中单独控制（见上方消融实验结果表），不属于 `AblationFlags`。
-
-### API调度配置（src/api/queue_manager.py）
-
-| 参数 | 默认值 | 说明 |
-|------|--------|------|
-| `WINDOW_SECONDS` | 30 | 批次超时窗口（秒） |
-| `SIZE_THRESHOLD` | 10 | 批次大小触发阈值 |
-| `MAX_RETRIES` | 1 | 失败批次最大重试次数 |
-
----
 
 ## 项目结构
 
+```text
+.
+├── main_api.py                 # FastAPI 启动入口
+├── main_worker.py              # Celery Worker 启动入口
+├── main_interaction.py         # 多模态 ReAct Agent 交互入口
+├── main_agv.py                 # 菜单式 AGV 演示入口
+├── main_simulation.py          # AGV 仿真/消融入口
+├── main_rag.py                 # RAG / GraphRAG CLI
+├── start_vlm_server.py         # vLLM 服务启动脚本
+├── status_vlm_server.py        # vLLM 状态脚本
+├── restock_inventory.py        # 库存补充工具
+├── config/prompts.yaml         # Agent / VLM 提示词
+├── data/knowledge_base/        # markdown 知识库
+├── docs/                       # 架构、Neo4j、API、项目文档
+├── tests/                      # pytest 测试
+└── src/
+    ├── agent/                  # 单 ReAct Agent 与工具
+    ├── agents/                 # Supervisor 多智能体
+    ├── api/                    # FastAPI、Celery、队列、调度循环
+    ├── asr/                    # Whisper ASR
+    ├── common/                 # 配置、prompt、reranker、工具函数
+    ├── parser/                 # PortInstruction 与规则解析
+    ├── rag/                    # Traditional RAG 与 GraphRAG
+    ├── vlm/                    # Qwen/VLM 路由与服务管理
+    └── warehouse/              # WMS/WES/Fleet/Simulation 调度系统
 ```
-wh_graphrag_re/
-├── main_interaction.py       # 港口指令解析入口（交互式，ASR→ReAct Agent）
-├── main_agv.py               # AGV调度+指令解析整合入口（菜单式 v2.0）
-├── main_simulation.py        # AGV调度仿真入口（含 --ablation 消融实验）
-├── main_api.py               # REST API服务启动入口
-├── main_rag.py               # RAG测试CLI（Traditional / Neo4j Graph）
-├── start_vlm_server.py       # vLLM服务器启动（tool-call + prefix caching）
-├── status_vlm_server.py      # vLLM服务器状态查询
-├── test_api_batch.py         # 批量调度端到端测试（10条真实数据→调度→动画）
-├── restock_inventory.py      # 库存一键补充工具（补量+清空预留）
-├── NEO4J.md                  # Neo4j 服务管理与图谱生命周期说明
-├── src/
-│   ├── agents/               # 多智能体模块
-│   │   ├── supervisor.py     # Supervisor：编排 LLM 两步流水线
-│   │   ├── instruction_agent.py  # LLM Agent：指令语义解析
-│   │   ├── inventory_agent.py    # LLM Agent：库存查询 + 工单创建
-│   │   └── agv_agent.py          # 纯算法 Agent：批量 AGV 调度
-│   ├── agent/                # 单 Agent 兼容模块（WorkOrder 组装辅助）
-│   │   ├── agent.py          # _assemble_work_order 等工具函数
-│   │   └── tools/            # query_knowledge_base / query_inventory / create_restock
-│   ├── api/                  # REST API 模块
-│   │   ├── app.py            # FastAPI 工厂函数（指令接入→入队）
-│   │   ├── celery_app.py     # Celery 任务（异步 LLM 处理）
-│   │   ├── models.py         # 请求/响应模型
-│   │   ├── queue_manager.py  # 工单队列（内存/Redis）
-│   │   └── scheduler.py      # 后台协程（触发 agv_agent）
-│   ├── asr/whisper.py        # Whisper ASR
-│   ├── vlm/                  # VLM模块（router + qwen2 + qwen35 + server）
-│   ├── parser/parser.py      # PortInstruction 模型 + 规则解析降级
-│   ├── rag/                  # RAG模块（manager + traditional + graph[Neo4j]）
-│   ├── common/               # 配置、Reranker、prompts、工具函数
-│   └── warehouse/            # AGV调度系统（见上方模块结构）
-├── data/
-│   └── knowledge_base/       # 港口设备知识库（GraphRAG 图谱持久化于 Neo4j）
-├── config/prompts.yaml       # VLM / Agent 系统提示
-├── tests/                    # 测试套件
-├── .env.example              # 环境变量模板
-└── requirements.txt          # 依赖列表
-```
-
----
 
 ## 故障排查
 
-| 问题 | 解决方案 |
-|------|---------|
-| 模型加载失败 | 检查网络和磁盘空间（BGE-M3: ~2.3GB, Qwen3.5-4B: ~9GB） |
-| Agent 不调用工具/解析失败 | 确认启动的是 Qwen3.5（`VLM_MODEL_TYPE=qwen35`）且服务器带 `--tool-call-parser qwen3_xml` |
-| Neo4j 连接失败 | `sudo neo4j status` 确认运行，核对 `.env` 的 `NEO4J_*`，确认已装 APOC 插件 |
-| 图谱为空/需重建 | `cypher-shell -u neo4j -p <pwd> "MATCH (n) DETACH DELETE n;"` 后重启应用，或 `rag:rebuild` |
-| RAG检索失败 | 确认 `data/knowledge_base/` 有文档，运行 `rag:rebuild` |
-| GBK编码错误 | `python -X utf8 main_interaction.py` |
-| GPU内存不足 | 降低 `VLLM_SERVER_GPU_MEM_UTIL` 或使用 Qwen2-VL-2B（注：Agent 需 Qwen3.5） |
-| API库存不足 | 检查 `data/inventory.db` 或重启API服务重建库存 |
-| API调度无响应 | 检查队列是否满足触发条件（≥10条或等待30秒） |
+| 问题 | 处理 |
+| --- | --- |
+| vLLM 端口占用 | 检查 `VLLM_SERVER_BASE_PORT`，Qwen3.5 使用 `base_port + 1` |
+| Agent 工具调用失败 | 确认 `VLM_MODEL_TYPE=qwen35`，并用 `start_vlm_server.py` 启动带 tool-call parser 的 vLLM |
+| API 一直不调度 | 检查队列是否达到阈值、是否超过窗口，或提交包含“紧急”的订单 |
+| Redis 不可用 | API 会降级到内存队列；完整异步 Agent 模式必须启动 Redis |
+| Celery 无结果 | 检查 `main_worker.py` 是否运行，`REDIS_URL` 与 `REDIS_RESULT_URL` 是否一致 |
+| Neo4j 连接失败 | 检查服务、账号密码、APOC 插件和 `.env` 的 `NEO4J_*` |
+| GraphRAG 图谱为空 | 在 `main_rag.py` 中执行 `rebuild`，或清空 Neo4j 后重建 |
+| 模型离线加载失败 | 检查本地 HuggingFace 缓存；`.env` 中 `VLLM_OFFLINE=true` 会禁止联网下载 |
+| API 库存不足 | 运行 `python restock_inventory.py --qty 100`，或删除/重建本地库存数据库 |
+| 编码问题 | 使用 `python -X utf8 ...` |
 
-## 许可证
+## 相关文档
 
-MIT License - 详见 [LICENSE](LICENSE) 文件
+- [docs/e2e_architecture.md](docs/e2e_architecture.md)
+- [docs/api_usage.md](docs/api_usage.md)
+- [docs/multiagent_architecture.md](docs/multiagent_architecture.md)
+- [docs/neo4j_setup.md](docs/neo4j_setup.md)
+- [src/warehouse/README.md](src/warehouse/README.md)
