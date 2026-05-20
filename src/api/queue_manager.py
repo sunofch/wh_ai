@@ -21,6 +21,10 @@ PENDING_ORDERS_KEY = "warehouse:pending_orders"
 URGENT_ORDERS_KEY = "warehouse:pending_orders:urgent"
 
 
+def _redis_key_for_order(order: WorkOrder) -> str:
+    return URGENT_ORDERS_KEY if order.priority == OrderPriority.URGENT else PENDING_ORDERS_KEY
+
+
 # ---------------------------------------------------------------------------
 # 内存队列（单进程开发/测试用）
 # ---------------------------------------------------------------------------
@@ -180,8 +184,7 @@ class RedisOrderQueue:
                 self._retry_counts.get(order.order_id, 0) + 1
             )
             data = json.dumps(_work_order_to_dict(order), ensure_ascii=False)
-            key = URGENT_ORDERS_KEY if order.priority == OrderPriority.URGENT else PENDING_ORDERS_KEY
-            await self._redis.rpush(key, data)
+            await self._redis.rpush(_redis_key_for_order(order), data)
         return True
 
     async def size(self) -> int:

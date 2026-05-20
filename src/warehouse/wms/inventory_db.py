@@ -163,10 +163,14 @@ class StockManager:
         """确认扣减：quantity 和 reserved 同时减少。"""
         with self._conn() as conn:
             row = conn.execute(
-                "SELECT location FROM stock_quant WHERE model = ?", (model,)
+                "SELECT location, quantity, reserved FROM stock_quant WHERE model = ?", (model,)
             ).fetchone()
             if row is None:
                 return
+            if row["reserved"] < quantity:
+                raise ValueError(
+                    f"cannot confirm {quantity} of {model}: only {row['reserved']} reserved"
+                )
             conn.execute(
                 "UPDATE stock_quant SET quantity = quantity - ?, reserved = reserved - ?, "
                 "updated_at = datetime('now') WHERE model = ?",
@@ -182,10 +186,14 @@ class StockManager:
         """释放预留：reserved 减少。"""
         with self._conn() as conn:
             row = conn.execute(
-                "SELECT location FROM stock_quant WHERE model = ?", (model,)
+                "SELECT location, reserved FROM stock_quant WHERE model = ?", (model,)
             ).fetchone()
             if row is None:
                 return
+            if row["reserved"] < quantity:
+                raise ValueError(
+                    f"cannot release {quantity} of {model}: only {row['reserved']} reserved"
+                )
             conn.execute(
                 "UPDATE stock_quant SET reserved = reserved - ?, "
                 "updated_at = datetime('now') WHERE model = ?",

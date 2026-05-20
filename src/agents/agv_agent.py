@@ -83,6 +83,8 @@ def run(
 
 def _confirm_orders(inv_db, orders: list[WorkOrder]) -> None:
     for order in orders:
+        if not order.metadata.get("inventory_reserved"):
+            continue
         for item in order.items:
             if item.model:
                 inv_db.confirm(
@@ -93,6 +95,8 @@ def _confirm_orders(inv_db, orders: list[WorkOrder]) -> None:
 
 def _release_orders(inv_db, orders: list[WorkOrder]) -> None:
     for order in orders:
+        if not order.metadata.get("inventory_reserved"):
+            continue
         for item in order.items:
             if item.model:
                 inv_db.release(

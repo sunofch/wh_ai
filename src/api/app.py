@@ -27,6 +27,12 @@ logger = logging.getLogger(__name__)
 REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379/0")
 
 
+def _transcribe_audio_base64(audio_base64: str) -> str:
+    audio_bytes = base64.b64decode(audio_base64, validate=True)
+    from src.asr import get_asr_instance
+    return get_asr_instance().transcribe_bytes(audio_bytes).strip()
+
+
 def _try_build_redis_queue() -> RedisOrderQueue | None:
     """尝试连接 Redis，失败则返回 None（降级到内存队列）。"""
     try:
@@ -109,7 +115,6 @@ def _register_routes(app: FastAPI):
                 status_code=400,
                 detail={"error": "parse_failed", "detail": "无有效输入"},
             )
-
         # 验证 base64 格式（不解码完整内容，只检查格式）
         if req.audio_base64:
             try:
@@ -128,15 +133,25 @@ def _register_routes(app: FastAPI):
                     detail={"error": "invalid_base64", "field": "image_base64"},
                 )
 
+        effective_text = req.text or ""
+        if req.audio_base64:
+            transcribed = await asyncio.to_thread(_transcribe_audio_base64, req.audio_base64)
+            if not transcribed and not effective_text and not req.image_base64:
+                raise HTTPException(
+                    status_code=422,
+                    detail={"error": "audio_transcription_failed"},
+                )
+            effective_text = " ".join(part for part in [effective_text, transcribed] if part)
+
         instruction_id = str(uuid4())
 
         if st.vlm_available:
             # 异步路径：提交 Celery 任务，立即返回
             from src.api.celery_app import process_order, process_order_urgent
-            is_urgent = bool(req.text and "紧急" in req.text)
+            is_urgent = bool(effective_text and "紧急" in effective_text)
             task_fn = process_order_urgent if is_urgent else process_order
             task_fn.apply_async(
-                args=[req.text, req.image_base64, instruction_id],
+                args=[effective_text, req.image_base64, instruction_id],
                 task_id=instruction_id,
             )
             return InstructionResponse(
@@ -153,17 +168,17 @@ def _register_routes(app: FastAPI):
             wh_config_local = WarehouseConfig()
             om = OrderManager(map_config, seed=wh_config_local.RANDOM_SEED)
             parser = PortInstructionParser()
-            instruction = parser._rule_based_parse(req.text or "")
-            order = om.from_port_instruction(instruction, inventory_db=None)
+            instruction = parser._rule_based_parse(effective_text)
+            order = om.from_port_instruction(instruction, inventory_db=st.inv_db)
             if order:
-                order.metadata["raw_text"] = req.text or ""
+                order.metadata["raw_text"] = effective_text
                 order.metadata["instruction_id"] = instruction_id
                 if isinstance(st.queue, RedisOrderQueue):
                     import json
-                    from src.api.queue_manager import _work_order_to_dict, PENDING_ORDERS_KEY
+                    from src.api.queue_manager import _redis_key_for_order, _work_order_to_dict
                     import redis as _redis
                     rc = _redis.from_url(REDIS_URL)
-                    rc.rpush(PENDING_ORDERS_KEY, json.dumps(_work_order_to_dict(order), ensure_ascii=False))
+                    rc.rpush(_redis_key_for_order(order), json.dumps(_work_order_to_dict(order), ensure_ascii=False))
                     rc.close()
                 else:
                     st.queue.push(order)

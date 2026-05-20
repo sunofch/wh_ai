@@ -31,10 +31,6 @@ celery_app.conf.update(
     },
 )
 
-# Redis List key：Celery Worker 完成后推入，scheduler_loop 消费
-PENDING_ORDERS_KEY = "warehouse:pending_orders"
-
-
 @celery_app.task(
     name="warehouse.process_order",
     bind=True,
@@ -97,7 +93,10 @@ def process_order(
         }
 
         # 推入 Redis List，供 scheduler_loop 批量调度
-        redis_client.rpush(PENDING_ORDERS_KEY, json.dumps(order_dict, ensure_ascii=False))
+        from src.api.queue_manager import _dict_to_work_order, _redis_key_for_order
+        queue_order = _dict_to_work_order(order_dict)
+        key = _redis_key_for_order(queue_order) if queue_order else "warehouse:pending_orders"
+        redis_client.rpush(key, json.dumps(order_dict, ensure_ascii=False))
 
         return {"status": "completed", "work_order": order_dict}
 
@@ -123,4 +122,4 @@ def process_order_urgent(
     instruction_id: str,
 ) -> dict:
     """紧急订单专用任务，路由到 urgent 队列，Worker 优先消费。"""
-    return process_order(self, text, image_base64, instruction_id)
+    return process_order.run(text, image_base64, instruction_id)

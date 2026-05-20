@@ -114,6 +114,7 @@ def _assemble_work_order(agent_result: dict) -> WorkOrder:
                         source="vlm",
                         priority=OrderPriority(data.get("priority", OrderPriority.NORMAL.value)),
                         items=items,
+                        metadata=data.get("metadata", {}),
                     )
                     _attach_restock(order, messages)
                     return order

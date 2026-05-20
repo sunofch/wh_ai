@@ -1,7 +1,12 @@
 import asyncio
 import pytest
-from src.warehouse.models import WorkOrder, OrderPriority
-from src.api.queue_manager import OrderQueue
+from src.warehouse.models import WorkOrder, OrderItem, OrderPriority, TaskType
+from src.api.queue_manager import (
+    OrderQueue,
+    URGENT_ORDERS_KEY,
+    _redis_key_for_order,
+    _work_order_to_dict,
+)
 
 pytestmark = pytest.mark.asyncio
 
@@ -14,6 +19,18 @@ def _normal_order(order_id: int = 1) -> WorkOrder:
 def _urgent_order(order_id: int = 99) -> WorkOrder:
     return WorkOrder(order_id=order_id, source="vlm",
                      priority=OrderPriority.URGENT, items=[])
+
+
+async def test_urgent_order_serializes_to_urgent_redis_key():
+    order = WorkOrder(
+        order_id=99,
+        source="vlm",
+        priority=OrderPriority.URGENT,
+        items=[OrderItem(item_id=1, task_type=TaskType.OUTBOUND)],
+    )
+
+    assert _redis_key_for_order(order) == URGENT_ORDERS_KEY
+    assert _work_order_to_dict(order)["priority"] == OrderPriority.URGENT.value
 
 
 async def test_push_and_drain():

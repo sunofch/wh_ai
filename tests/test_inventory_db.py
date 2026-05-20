@@ -97,6 +97,18 @@ def test_confirm_deducts_quantity_and_reserved(mgr):
     assert updated.available == updated.quantity - updated.reserved
 
 
+def test_confirm_without_reservation_does_not_make_reserved_negative(mgr):
+    model = _find_model(mgr)
+    item = mgr.query(model)
+
+    with pytest.raises(ValueError):
+        mgr.confirm(model, 1, order_id="ord-no-reserve")
+
+    updated = mgr.query(model)
+    assert updated.quantity == item.quantity
+    assert updated.reserved == item.reserved
+
+
 def test_release_restores_available(mgr):
     model = _find_model(mgr)
     item = mgr.query(model)

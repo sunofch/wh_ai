@@ -79,6 +79,8 @@ class OrderManager:
         # 通过 StockManager 解析储位
         resolved_pick = ""
         resolved_dest = ""
+        inv_item = None
+        inventory_reserved = False
         if inventory_db is not None:
             inv_item = None
             if instruction.model:
@@ -87,19 +89,27 @@ class OrderManager:
                 inv_item = inventory_db.query_by_name(instruction.part_name)
             if inv_item:
                 if task_type == TaskType.OUTBOUND:
-                    resolved_pick = inv_item.location
+                    resolved_pick = inventory_db.reserve(
+                        inv_item.model,
+                        instruction.quantity or 1,
+                    )
+                    inventory_reserved = bool(resolved_pick)
                     resolved_dest = port
                 elif task_type == TaskType.INBOUND:
                     resolved_pick = port
                     resolved_dest = inv_item.location
                 else:  # TRANSFER
-                    resolved_pick = inv_item.location
+                    resolved_pick = inventory_db.reserve(
+                        inv_item.model,
+                        instruction.quantity or 1,
+                    )
+                    inventory_reserved = bool(resolved_pick)
                     resolved_dest = port
 
         item = OrderItem(
             item_id=1,
             task_type=task_type,
-            model=instruction.model or "",
+            model=instruction.model or (inv_item.model if inv_item else ""),
             part_name=instruction.part_name or "",
             quantity=instruction.quantity or 1,
             resolved_pick=resolved_pick,
@@ -113,5 +123,6 @@ class OrderManager:
             metadata={
                 "description": instruction.description,
                 "raw_text": instruction.description or "",
+                "inventory_reserved": inventory_reserved,
             },
         )

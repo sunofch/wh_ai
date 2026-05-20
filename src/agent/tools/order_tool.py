@@ -64,6 +64,7 @@ def create_work_order(
             "status": "created",
             "order_id": order.order_id,
             "priority": order.priority.value,
+            "metadata": order.metadata,
             "items": [
                 {
                     "task_type": i.task_type.value,
