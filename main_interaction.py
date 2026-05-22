@@ -1,16 +1,15 @@
-"""
-主指令解析模块：All-in-VLM 架构
-"""
+"""多模态 Supervisor 交互入口。"""
 import logging
 import argparse
 import json
 import os
-import sys
 import time
 import traceback
-from pathlib import Path
 from typing import Union, Optional, Any, Callable
 import numpy as np
+from dotenv import load_dotenv
+
+load_dotenv()
 
 
 # 尝试导入录音相关库
@@ -22,8 +21,6 @@ except ImportError:
     HAS_RECORDING_LIB = False
 
 from src.asr import get_asr_instance
-from src.vlm import get_vlm_instance, VLM_NAME
-from src.parser import PortInstructionParser, PortInstruction
 from src.common.config import config
 from src.warehouse.models import WorkOrder
 
@@ -63,8 +60,6 @@ class InstructionParser:
             raise RuntimeError("vLLM 服务器未运行")
 
         self.asr = get_asr_instance()
-        self.vlm = get_vlm_instance()
-        self.parser = PortInstructionParser()
 
         # RAG 状态管理
         self.rag_enabled = config.rag.enabled
@@ -77,7 +72,7 @@ class InstructionParser:
                 from src.rag.manager import get_unified_rag_manager
                 self.rag_manager = get_unified_rag_manager()
 
-        logger.info(f">>> 系统初始化完成 (VLM模型: {VLM_NAME})")
+        logger.info(f">>> 系统初始化完成 (Agent模型: {config.vlm35.model})")
 
     def set_rag_enabled(self, enabled: bool):
         """动态启用/禁用 RAG"""
@@ -88,7 +83,6 @@ class InstructionParser:
         self.rag_enabled = enabled
         if self.rag_manager:
             self.rag_manager.set_enabled(enabled)
-        self.vlm._rag_enabled = enabled  # 同时更新 VLM 的 RAG 状态
         status = "启用" if enabled else "禁用"
         logger.info(f">>> RAG 已{status}")
 
@@ -175,7 +169,7 @@ def interactive_mode() -> None:
     """
     print("="*60)
     print("港口指令解析系统 - 全能交互模式")
-    print(f"当前VLM模型: {VLM_NAME}")
+    print(f"当前Agent模型: {config.vlm35.model}")
     print("支持操作：")
     print("   1. 输入文本指令 (如：需要5个电机)")
     print("   2. 输入文件路径 (直接将 图片/音频 文件拖入窗口)")

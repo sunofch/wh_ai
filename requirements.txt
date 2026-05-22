@@ -10,6 +10,9 @@ openai-whisper==20250625
 pillow==12.1.1
 soundfile==0.13.1
 numpy==2.3.5
+pandas
+scikit-learn
+torch
 accelerate==1.13.0
 sentencepiece==0.2.1
 protobuf==6.33.6

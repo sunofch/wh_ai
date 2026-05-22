@@ -49,10 +49,41 @@ class SupervisorConfig(BaseAppConfig):
     max_tokens: int = Field(default=512, alias="SUPERVISOR_MAX_TOKENS")
 
 
-class InventoryAgentConfig(BaseAppConfig):
-    """Agent 2：库存管理 Agent 模型配置"""
-    model: str = Field(default="Qwen/Qwen3.5-4B", alias="INVENTORY_AGENT_MODEL")
-    max_tokens: int = Field(default=2048, alias="INVENTORY_AGENT_MAX_TOKENS")
+class ForecastWarningAgentConfig(BaseAppConfig):
+    """Agent 4：预测预警 Agent 模型配置"""
+    model: str = Field(default="Qwen/Qwen3.5-4B", alias="FORECAST_WARNING_AGENT_MODEL")
+    max_tokens: int = Field(default=1024, alias="FORECAST_WARNING_AGENT_MAX_TOKENS")
+
+
+class OptimizationConfig(BaseAppConfig):
+    """港口备件库存预测预警与补货优化配置"""
+    enabled: bool = Field(default=True, alias="OPTIMIZATION_ENABLED")
+    horizon_weeks: int = Field(default=4, alias="OPTIMIZATION_HORIZON_WEEKS")
+    lead_time_weeks: int = Field(default=2, alias="OPTIMIZATION_LEAD_TIME_WEEKS")
+    safety_stock_weeks: int = Field(default=1, alias="OPTIMIZATION_SAFETY_STOCK_WEEKS")
+    min_restock_qty: int = Field(default=10, alias="OPTIMIZATION_MIN_RESTOCK_QTY")
+    max_restock_qty: int = Field(default=100, alias="OPTIMIZATION_MAX_RESTOCK_QTY")
+    restock_step_qty: int = Field(default=10, alias="OPTIMIZATION_RESTOCK_STEP_QTY")
+    policy: str = Field(default="rule", alias="OPTIMIZATION_POLICY")
+    use_lstm: bool = Field(default=False, alias="OPTIMIZATION_USE_LSTM")
+    use_dqn: bool = Field(default=False, alias="OPTIMIZATION_USE_DQN")
+    model_dir: str = Field(default="data/models/optimization", alias="OPTIMIZATION_MODEL_DIR")
+    raw_data_dir: str = Field(
+        default="port_inventory_optimization/port_inventory_optimization/data/raw",
+        alias="OPTIMIZATION_RAW_DATA_DIR",
+    )
+    processed_data_dir: str = Field(default="data/optimization", alias="OPTIMIZATION_PROCESSED_DATA_DIR")
+    lstm_window_size: int = Field(default=26, alias="OPTIMIZATION_LSTM_WINDOW_SIZE")
+    lstm_hidden_size: int = Field(default=64, alias="OPTIMIZATION_LSTM_HIDDEN_SIZE")
+    lstm_num_layers: int = Field(default=2, alias="OPTIMIZATION_LSTM_NUM_LAYERS")
+    lstm_dropout: float = Field(default=0.3, alias="OPTIMIZATION_LSTM_DROPOUT")
+    lstm_lr: float = Field(default=0.005, alias="OPTIMIZATION_LSTM_LR")
+    lstm_epochs: int = Field(default=300, alias="OPTIMIZATION_LSTM_EPOCHS")
+    dqn_episodes: int = Field(default=6000, alias="OPTIMIZATION_DQN_EPISODES")
+    dqn_gamma: float = Field(default=0.95, alias="OPTIMIZATION_DQN_GAMMA")
+    dqn_lr: float = Field(default=0.0005, alias="OPTIMIZATION_DQN_LR")
+    dqn_epsilon_decay: int = Field(default=3000, alias="OPTIMIZATION_DQN_EPSILON_DECAY")
+    dqn_target_update_freq: int = Field(default=50, alias="OPTIMIZATION_DQN_TARGET_UPDATE_FREQ")
 
 
 class VLMSelectorConfig(BaseAppConfig):
@@ -231,7 +262,8 @@ class Config(BaseSettings):
     vlm_selector: VLMSelectorConfig = VLMSelectorConfig()
     vllm_server: VLLMServerConfig = VLLMServerConfig()
     supervisor: SupervisorConfig = SupervisorConfig()
-    inventory_agent: InventoryAgentConfig = InventoryAgentConfig()
+    forecast_warning_agent: ForecastWarningAgentConfig = ForecastWarningAgentConfig()
+    optimization: OptimizationConfig = OptimizationConfig()
     parser: ParserConfig = ParserConfig()
 
     # 路径配置

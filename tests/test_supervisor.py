@@ -2,11 +2,10 @@
 
 测试范围：
 1. instruction_agent 名称常量正确
-2. get_instruction_agent() 以正确 name 调用 create_react_agent
+2. get_instruction_agent() 构建自定义 LangGraph
 3. supervisor.run() 经两步流水线返回 WorkOrder
 4. agv_agent.run() 纯算法调度路径可调用
 """
-import json
 from unittest.mock import patch, MagicMock
 
 
@@ -20,47 +19,21 @@ def test_agent_name_constant():
 # ── 2. get_instruction_agent 传入正确的 name ───────────────────────────────────
 
 def test_get_instruction_agent_passes_name():
-    """create_react_agent 必须收到 name='instruction_agent'。"""
-    with patch("src.agents.instruction_agent.ChatOpenAI"), \
-         patch("src.agents.instruction_agent.create_react_agent") as mock_create:
-        mock_create.return_value = MagicMock()
+    """instruction_agent 已改为自定义 LangGraph，不再使用 create_react_agent。"""
+    mock_llm = MagicMock()
+    mock_llm.bind_tools.return_value = MagicMock()
+    mock_llm.with_structured_output.return_value = MagicMock()
+
+    with patch("src.agents.instruction_agent.ChatOpenAI", return_value=mock_llm) as MockChat:
 
         from src.agents.instruction_agent import get_instruction_agent
         get_instruction_agent.cache_clear()
-        get_instruction_agent()
+        agent = get_instruction_agent()
 
-        _, kwargs = mock_create.call_args
-        assert kwargs.get("name") == "instruction_agent"
-
-
-# ── 3. supervisor.run() 两步流水线返回 WorkOrder ──────────────────────────────
-
-def _make_inventory_messages(instruction_fields: dict):
-    """模拟 inventory_agent 返回的消息列表，含 create_work_order ToolMessage。"""
-    from langchain_core.messages import AIMessage, ToolMessage, HumanMessage
-
-    work_order_result = {
-        "status": "created",
-        "order_id": 1,
-        "priority": "NORMAL",
-        "items": [{
-            "task_type": "OUTBOUND",
-            "model": instruction_fields.get("model", ""),
-            "part_name": instruction_fields.get("part_name", ""),
-            "quantity": instruction_fields.get("quantity", 1),
-            "pick": "S-01",
-            "dest": "OUT-01",
-        }],
-    }
-    return [
-        HumanMessage(content="测试输入"),
-        ToolMessage(
-            content=json.dumps(work_order_result, ensure_ascii=False),
-            tool_call_id="create_work_order",
-            name="create_work_order",
-        ),
-        AIMessage(content=json.dumps(instruction_fields, ensure_ascii=False)),
-    ]
+    assert hasattr(agent, "invoke")
+    MockChat.assert_called_once()
+    mock_llm.bind_tools.assert_called_once()
+    mock_llm.with_structured_output.assert_called_once()
 
 
 def test_run_returns_work_order():
@@ -72,49 +45,36 @@ def test_run_returns_work_order():
         items=[OrderItem(item_id=1, task_type=TaskType.OUTBOUND, quantity=3)],
     )
     msgs1 = [MagicMock(content="深沟球轴承 3个 出库")]
-    msgs2 = _make_inventory_messages({
-        "part_name": "深沟球轴承", "quantity": 3,
-        "model": "6208-Mech1", "action_required": "出库", "is_urgent": False,
-    })
 
     mock_instruction_agent = MagicMock()
     mock_instruction_agent.invoke.return_value = {"messages": msgs1}
 
     mock_inventory_agent = MagicMock()
-    mock_inventory_agent.invoke.return_value = {"messages": msgs2}
+    mock_inventory_agent.run.return_value = mock_order
 
     with patch("src.agents.supervisor.get_instruction_agent", return_value=mock_instruction_agent), \
-         patch("src.agents.supervisor.get_inventory_agent", return_value=mock_inventory_agent), \
-         patch("src.agent.agent.StockManager"), \
-         patch("src.agent.agent.OrderManager") as MockOM:
-        MockOM.return_value.from_port_instruction.return_value = mock_order
+         patch("src.agents.supervisor.get_inventory_agent", return_value=mock_inventory_agent):
 
         from src.agents.supervisor import run
         result = run(text="需要3个深沟球轴承出库")
 
     assert isinstance(result, WorkOrder)
+    mock_inventory_agent.run.assert_called_once_with("深沟球轴承 3个 出库")
 
 
 def test_run_no_agv_scheduling():
     """supervisor.run() 不触发 AGV 调度，agv_agent 不被调用。"""
     msgs1 = [MagicMock(content="液压泵 1台 入库")]
-    msgs2 = _make_inventory_messages({
-        "part_name": "液压泵", "quantity": 1,
-        "model": "HPU-300", "action_required": "入库", "is_urgent": False,
-    })
 
     mock_instruction_agent = MagicMock()
     mock_instruction_agent.invoke.return_value = {"messages": msgs1}
 
     mock_inventory_agent = MagicMock()
-    mock_inventory_agent.invoke.return_value = {"messages": msgs2}
+    mock_inventory_agent.run.return_value = MagicMock()
 
     with patch("src.agents.supervisor.get_instruction_agent", return_value=mock_instruction_agent), \
          patch("src.agents.supervisor.get_inventory_agent", return_value=mock_inventory_agent), \
-         patch("src.agent.agent.StockManager"), \
-         patch("src.agent.agent.OrderManager") as MockOM, \
          patch("src.agents.agv_agent.run") as mock_agv:
-        MockOM.return_value.from_port_instruction.return_value = MagicMock()
 
         from src.agents.supervisor import run
         run(text="液压泵1台入库")

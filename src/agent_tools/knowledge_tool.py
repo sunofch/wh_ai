@@ -14,7 +14,7 @@ def _ensure_rag_initialized():
 
 @tool
 def query_knowledge_base(query: str, top_k: int = 3) -> str:
-    """当备件名称或型号不明确时调用，从知识库检索相关信息。"""
+    """当备件名称或型号缺失时调用，从知识库检索相关信息。"""
     try:
         manager = _ensure_rag_initialized()
         nodes = manager.retrieve(query, top_k=top_k)

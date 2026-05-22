@@ -54,3 +54,6 @@ snapshots.py
 
 # 库存数据库
 data/inventory.db
+
+# 港口库存优化子模块
+port_inventory_optimization/

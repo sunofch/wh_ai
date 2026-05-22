@@ -4,54 +4,143 @@
   1. 查询库存可用量
   2. 创建出入库工单
   3. 库存不足时自主触发补货
+
+图结构（纯 Python 节点，不走 LLM，零 token 消耗）：
+  node_query → node_work_order → (sufficient=False) → node_restock → END
+                               → (sufficient=True)  → END
 """
 from __future__ import annotations
 
+import json
+import re
 from functools import lru_cache
+from typing import TypedDict
 
-from langchain_openai import ChatOpenAI
-from langgraph.prebuilt import create_react_agent
+from langgraph.graph import END, START, StateGraph
 
-from src.agent.tools.inventory_tool import query_inventory
-from src.agent.tools.order_tool import create_work_order, create_restock_order
-from src.common.config import config
+from src.agent_tools.inventory_tool import query_inventory
+from src.agent_tools.order_tool import create_restock_order, create_work_order
+from src.warehouse.models import OrderItem, OrderPriority, TaskType, WorkOrder
 
 AGENT_NAME = "inventory_agent"
 
-_SYSTEM_PROMPT = """你是港口备件仓储系统的库存管理专家。
 
-收到包含备件信息的请求时，按以下步骤处理：
-1. 调用 query_inventory 查询库存可用量
-2. 调用 create_work_order 创建对应的出库或入库工单
-3. 如果 query_inventory 返回 sufficient=false，额外调用 create_restock_order 创建补货单
+class InventoryState(TypedDict):
+    instruction: dict
+    inventory_data: dict
+    work_order: WorkOrder | None
 
-最终以 JSON 格式返回结果（必须包含完整工单数据供后续 AGV 调度使用）：
-{
-  "work_order_status": "created" | "failed",
-  "work_order": <create_work_order 返回的完整 JSON 对象>,
-  "restock_order_id": "RS-XXXX"
-}
-restock_order_id 仅在库存不足时包含，work_order 字段始终包含。
-"""
+
+def _parse_json(text: str) -> dict:
+    if not text:
+        return {}
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError:
+        pass
+    match = re.search(r"\{.*\}", text, re.DOTALL)
+    if match:
+        try:
+            return json.loads(match.group())
+        except json.JSONDecodeError:
+            pass
+    return {}
+
+
+def _build_work_order(data: dict) -> WorkOrder | None:
+    if data.get("status") != "created":
+        return None
+    priority_value = data.get("priority", OrderPriority.NORMAL.value)
+    if isinstance(priority_value, str) and priority_value in OrderPriority.__members__:
+        priority = OrderPriority[priority_value]
+    else:
+        priority = OrderPriority(priority_value)
+    items = [
+        OrderItem(
+            item_id=i + 1,
+            task_type=TaskType(item["task_type"]),
+            model=item.get("model", ""),
+            part_name=item.get("part_name", ""),
+            quantity=item.get("quantity", 1),
+            resolved_pick=item.get("pick", ""),
+            resolved_dest=item.get("dest", ""),
+        )
+        for i, item in enumerate(data.get("items", []))
+    ]
+    return WorkOrder(
+        order_id=data.get("order_id", 0),
+        source="vlm",
+        priority=priority,
+        items=items,
+        metadata=data.get("metadata", {}),
+    )
+
+
+class _InventoryPipeline:
+    def __init__(self, graph):
+        self._graph = graph
+
+    def run(self, parsed_text: str) -> WorkOrder:
+        result = self._graph.invoke({
+            "instruction": _parse_json(parsed_text),
+            "inventory_data": {},
+            "work_order": None,
+        })
+        return result.get("work_order") or WorkOrder(
+            order_id=0, source="vlm", priority=OrderPriority.NORMAL
+        )
 
 
 @lru_cache(maxsize=1)
-def get_inventory_agent():
-    """返回编译好的库存管理 ReAct Agent（LangGraph CompiledGraph）。"""
-    port = config.vllm_server.base_port + 1
-    host = config.vllm_server.host
-    llm = ChatOpenAI(
-        base_url=f"http://{host}:{port}/v1",
-        api_key="EMPTY",
-        model=config.inventory_agent.model,
-        temperature=0,
-        max_tokens=config.inventory_agent.max_tokens,
-        extra_body={"chat_template_kwargs": {"enable_thinking": False}},
-    )
-    tools = [query_inventory, create_work_order, create_restock_order]
-    return create_react_agent(
-        llm,
-        tools,
-        prompt=_SYSTEM_PROMPT,
-        name=AGENT_NAME,
-    )
+def get_inventory_agent() -> _InventoryPipeline:
+    """返回库存管理 Pipeline（LangGraph 自定义图，纯 Python 节点）。"""
+
+    def node_query(state: InventoryState) -> dict:
+        inst = state["instruction"]
+        result = query_inventory.invoke({
+            "model": inst.get("model", ""),
+            "part_name": inst.get("part_name", ""),
+            "quantity": inst.get("quantity", 1),
+        })
+        return {"inventory_data": json.loads(result)}
+
+    def node_work_order(state: InventoryState) -> dict:
+        inst = state["instruction"]
+        result = create_work_order.invoke({
+            "part_name": inst.get("part_name", ""),
+            "model": inst.get("model", ""),
+            "quantity": inst.get("quantity", 1),
+            "action_required": inst.get("action_required", "出库"),
+            "is_urgent": inst.get("is_urgent", False),
+        })
+        return {"work_order": _build_work_order(json.loads(result))}
+
+    def node_restock(state: InventoryState) -> dict:
+        inst = state["instruction"]
+        inv = state["inventory_data"]
+        result = create_restock_order.invoke({
+            "model": inst.get("model", ""),
+            "part_name": inst.get("part_name", ""),
+            "shortage": inv.get("shortage", inst.get("quantity", 1)),
+            "is_urgent": inst.get("is_urgent", False),
+        })
+        restock_data = json.loads(result)
+        order = state["work_order"]
+        if order and restock_data.get("order_id"):
+            new_metadata = {**order.metadata, "restock_order_id": restock_data["order_id"]}
+            order = order.model_copy(update={"metadata": new_metadata})
+        return {"work_order": order}
+
+    def _route_restock(state: InventoryState) -> str:
+        return "node_restock" if not state["inventory_data"].get("sufficient", True) else END
+
+    graph = StateGraph(InventoryState)
+    graph.add_node("node_query", node_query)
+    graph.add_node("node_work_order", node_work_order)
+    graph.add_node("node_restock", node_restock)
+    graph.add_edge(START, "node_query")
+    graph.add_edge("node_query", "node_work_order")
+    graph.add_conditional_edges("node_work_order", _route_restock)
+    graph.add_edge("node_restock", END)
+
+    return _InventoryPipeline(graph.compile())

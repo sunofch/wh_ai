@@ -14,6 +14,7 @@ from typing import Any
 
 from src.agents.instruction_agent import get_instruction_agent
 from src.agents.inventory_agent import get_inventory_agent
+from src.agents.work_order_assembler import print_agent_messages
 
 
 def _extract_last_text(result: dict) -> str:
@@ -37,9 +38,6 @@ def run(
     verbose: bool = False,
 ):
     """Supervisor 主入口。返回 WorkOrder，不涉及 AGV 调度。"""
-    from src.agent.agent import _assemble_work_order, _print_agent_messages
-
-    # 构建用户输入
     content: list[dict[str, Any]] = []
     if image:
         import base64
@@ -59,14 +57,9 @@ def run(
         {"messages": [{"role": "user", "content": content}]}
     )
     if verbose:
-        _print_agent_messages(result1.get("messages", []))
+        print_agent_messages(result1.get("messages", []))
     parsed_text = _extract_last_text(result1)
 
     # Step 2: inventory_agent — 查库存、建工单，返回 WorkOrder
-    result2 = get_inventory_agent().invoke(
-        {"messages": [{"role": "user", "content": parsed_text}]}
-    )
-    if verbose:
-        _print_agent_messages(result2.get("messages", []))
-
-    return _assemble_work_order({"messages": result2.get("messages", [])})
+    order = get_inventory_agent().run(parsed_text)
+    return order
