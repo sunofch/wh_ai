@@ -98,20 +98,20 @@ def get_inventory_agent() -> _InventoryPipeline:
     def node_query(state: InventoryState) -> dict:
         inst = state["instruction"]
         result = query_inventory.invoke({
-            "model": inst.get("model", ""),
-            "part_name": inst.get("part_name", ""),
-            "quantity": inst.get("quantity", 1),
+            "model": inst.get("model") or "",
+            "part_name": inst.get("part_name") or "",
+            "quantity": inst.get("quantity") or 1,
         })
         return {"inventory_data": json.loads(result)}
 
     def node_work_order(state: InventoryState) -> dict:
         inst = state["instruction"]
         result = create_work_order.invoke({
-            "part_name": inst.get("part_name", ""),
-            "model": inst.get("model", ""),
-            "quantity": inst.get("quantity", 1),
-            "action_required": inst.get("action_required", "出库"),
-            "is_urgent": inst.get("is_urgent", False),
+            "part_name": inst.get("part_name") or "",
+            "model": inst.get("model") or "",
+            "quantity": inst.get("quantity") or 1,
+            "action_required": inst.get("action_required") or "出库",
+            "is_urgent": inst.get("is_urgent") or False,
         })
         return {"work_order": _build_work_order(json.loads(result))}
 
@@ -119,10 +119,10 @@ def get_inventory_agent() -> _InventoryPipeline:
         inst = state["instruction"]
         inv = state["inventory_data"]
         result = create_restock_order.invoke({
-            "model": inst.get("model", ""),
-            "part_name": inst.get("part_name", ""),
-            "shortage": inv.get("shortage", inst.get("quantity", 1)),
-            "is_urgent": inst.get("is_urgent", False),
+            "model": inst.get("model") or "",
+            "part_name": inst.get("part_name") or "",
+            "shortage": inv.get("shortage") or inst.get("quantity") or 1,
+            "is_urgent": inst.get("is_urgent") or False,
         })
         restock_data = json.loads(result)
         order = state["work_order"]

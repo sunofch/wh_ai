@@ -41,6 +41,17 @@ class VLM35Config(BaseAppConfig):
     model: str = Field(default="Qwen/Qwen3.5-4B", alias="VLM35_MODEL")
     device: str = Field(default="auto", alias="VLM35_DEVICE")
     max_tokens: int = Field(default=4096, alias="VLM35_MAX_TOKENS")
+    lora_modules: dict = Field(default={}, alias="VLM35_LORA_MODULES")
+    lora_adapter_name: str = Field(default="", alias="VLM35_LORA_ADAPTER_NAME")
+
+    @field_validator("lora_modules", mode="before")
+    @classmethod
+    def parse_lora_modules(cls, v):
+        if isinstance(v, dict):
+            return v
+        if isinstance(v, str) and v:
+            return json.loads(v)
+        return {}
 
 
 class SupervisorConfig(BaseAppConfig):
@@ -105,6 +116,7 @@ class VLLMServerConfig(BaseAppConfig):
         alias="VLLM_SERVER_LIMIT_MM_PER_PROMPT"
     )
     startup_timeout: int = Field(default=180, alias="VLLM_SERVER_STARTUP_TIMEOUT")
+    enforce_eager: bool = Field(default=False, alias="VLLM_SERVER_ENFORCE_EAGER")
 
     @field_validator('limit_mm_per_prompt', mode='before')
     @classmethod

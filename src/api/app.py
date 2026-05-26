@@ -182,16 +182,19 @@ def _register_routes(app: FastAPI):
                     rc.close()
                 else:
                     st.queue.push(order)
-            _item = order.items[0] if order and order.items else None
+            parsed_items = [
+                ParsedInstruction(
+                    part_name=item.part_name,
+                    model=item.model,
+                    quantity=item.quantity,
+                )
+                for item in order.items
+            ] if order and order.items else None
             return InstructionResponse(
                 instruction_id=instruction_id,
                 status="queued",
                 vlm_available=False,
-                parsed=ParsedInstruction(
-                    part_name=_item.part_name if _item else None,
-                    model=_item.model if _item else None,
-                    quantity=_item.quantity if _item else None,
-                ) if _item else None,
+                parsed=parsed_items,
             )
 
     @app.get("/agent-result/{instruction_id}", response_model=AgentResultResponse)

@@ -85,7 +85,7 @@ async def test_post_instructions_returns_queued(app):
     assert resp.status_code == 200
     data = resp.json()
     assert data["status"] == "queued"
-    assert data["parsed"]["part_name"] == "轴承"
+    assert data["parsed"][0]["part_name"] == "轴承"
 
 
 @pytest.mark.asyncio

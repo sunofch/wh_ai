@@ -24,7 +24,7 @@ class InstructionResponse(BaseModel):
     instruction_id: str
     status:         str           # "queued" | "completed" | "failed"
     vlm_available:  bool
-    parsed:         Optional[ParsedInstruction] = None
+    parsed:         Optional[list[ParsedInstruction]] = None
 
 
 class AgentResultResponse(BaseModel):

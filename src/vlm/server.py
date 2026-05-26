@@ -41,6 +41,48 @@ class VLLMServerManager:
             except OSError:
                 return False
 
+    def _resolve_model(self, model_type: str) -> tuple[str, int]:
+        """返回 (model_name, port)，model_type 不合法时抛 ValueError。"""
+        if model_type == 'qwen2':
+            return config.vlm.model, self.port_map['qwen2']
+        if model_type == 'qwen35':
+            return config.vlm35.model, self.port_map['qwen35']
+        raise ValueError(f"不支持的模型类型: {model_type}")
+
+    def build_cmd(self, model_type: str) -> list[str]:
+        """构造完整的 vllm serve 命令，供 start_server 和外部启动脚本复用。"""
+        model_name, port = self._resolve_model(model_type)
+        cmd = [
+            'vllm', 'serve', model_name,
+            '--host', config.vllm_server.host,
+            '--port', str(port),
+            '--tensor-parallel-size', str(config.vllm_server.tensor_parallel_size),
+            '--gpu-memory-utilization', str(config.vllm_server.gpu_memory_utilization),
+            '--limit-mm-per-prompt', config.vllm_server.limit_mm_per_prompt,
+            '--enable-auto-tool-choice',
+            '--tool-call-parser', 'qwen3_xml',
+            '--enable-prefix-caching',
+        ]
+        if config.vllm_server.max_model_len:
+            cmd.extend(['--max-model-len', str(config.vllm_server.max_model_len)])
+        if config.vllm_server.enforce_eager:
+            cmd.append('--enforce-eager')
+        if model_type == 'qwen35' and config.vlm35.lora_modules:
+            cmd.append('--enable-lora')
+            for name, path in config.vlm35.lora_modules.items():
+                cmd.extend(['--lora-modules', f'{name}={path}'])
+        return cmd
+
+    def build_env(self) -> dict:
+        """构造子进程环境变量，处理 CUDA_VISIBLE_DEVICES 和离线模式。"""
+        env = os.environ.copy()
+        if config.vllm_server.cuda_visible_devices is not None:
+            env['CUDA_VISIBLE_DEVICES'] = config.vllm_server.cuda_visible_devices
+        if env.get('VLLM_OFFLINE', '').lower() in ('1', 'true', 'yes'):
+            env['HF_HUB_OFFLINE'] = '1'
+            env['TRANSFORMERS_OFFLINE'] = '1'
+        return env
+
     def start_server(self, model_type: str) -> bool:
         """启动指定模型的vLLM服务器
 
@@ -59,51 +101,25 @@ class VLLMServerManager:
             else:
                 self.stop_server(model_type)
 
-        # 获取模型配置
-        if model_type == 'qwen2':
-            model_name = config.vlm.model
-            port = self.port_map['qwen2']
-        elif model_type == 'qwen35':
-            model_name = config.vlm35.model
-            port = self.port_map['qwen35']
-        else:
-            raise ValueError(f"不支持的模型类型: {model_type}")
+        _, port = self._resolve_model(model_type)
 
-        # 检查端口是否可用
         if not self._is_port_available(port):
             raise RuntimeError(
                 f"端口 {port} 已被占用，请检查是否有其他vLLM服务器正在运行，"
                 f"或修改.env中的VLLM_SERVER_BASE_PORT配置"
             )
 
-        # 构造vllm serve命令
-        cmd = [
-            'vllm', 'serve', model_name,
-            '--host', config.vllm_server.host,
-            '--port', str(port),
-            '--tensor-parallel-size', str(config.vllm_server.tensor_parallel_size),
-            '--gpu-memory-utilization', str(config.vllm_server.gpu_memory_utilization),
-            '--limit-mm-per-prompt', config.vllm_server.limit_mm_per_prompt,
-            '--enable-auto-tool-choice',
-            '--tool-call-parser', 'qwen3_xml',
-        ]
-
-        # 可选参数
-        if config.vllm_server.max_model_len:
-            cmd.extend(['--max-model-len', str(config.vllm_server.max_model_len)])
-
-        # 启动服务器
-        print(f"启动vLLM服务器: {model_name} 在端口 {port}")
+        cmd = self.build_cmd(model_type)
+        print(f"启动vLLM服务器: {cmd[2]} 在端口 {port}")
         process = subprocess.Popen(
             cmd,
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
-            text=True
+            text=True,
+            env=self.build_env(),
         )
-
         self.servers[model_type] = process
 
-        # 等待服务器就绪（使用配置的超时时间）
         max_wait = config.vllm_server.startup_timeout
         for i in range(max_wait):
             if self.health_check(model_type):
@@ -111,10 +127,9 @@ class VLLMServerManager:
                 return True
             time.sleep(1)
 
-        # 启动失败 - 捕获错误输出
         try:
             output, _ = process.communicate(timeout=1)
-        except:
+        except Exception:
             output = process.stdout.read() if process.stdout else ""
 
         self.stop_server(model_type)
@@ -122,14 +137,11 @@ class VLLMServerManager:
         error_msg = f"vLLM服务器 {model_type} 启动超时（等待{max_wait}秒）"
         if output:
             error_msg += f"\n输出:\n{output[-500:]}"
-
-        # 提供诊断建议
         error_msg += f"\n\n诊断建议:"
         error_msg += f"\n  1. 检查GPU状态: nvidia-smi"
         error_msg += f"\n  2. 检查端口占用: netstat -tlnp | grep {port}"
         error_msg += f"\n  3. 增加超时时间: 在.env中设置 VLLM_SERVER_STARTUP_TIMEOUT={max_wait + 60}"
         error_msg += f"\n  4. 查看vLLM日志: 检查stderr输出中的错误信息"
-
         raise RuntimeError(error_msg)
 
     def stop_server(self, model_type: str) -> bool:
