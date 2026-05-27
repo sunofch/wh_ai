@@ -52,6 +52,7 @@ snapshots.py
 .pytest_cache/
 .superpowers/
 .codegraph/
+.understand-anything/
 
 # 库存数据库
 data/inventory.db
