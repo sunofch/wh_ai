@@ -50,8 +50,12 @@ snapshots.py
 
 # 测试与工具缓存
 .pytest_cache/
+.coverage
 .superpowers/
 .codegraph/
+
+# 运行输出
+outputs/
 .understand-anything/
 
 # 库存数据库
