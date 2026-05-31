@@ -2,7 +2,8 @@
 ASR模块：使用openai/whisper进行语音转文字
 """
 import io
-from functools import lru_cache
+import logging
+import threading
 from typing import Optional, Union
 
 import numpy as np
@@ -14,6 +15,9 @@ from scipy import signal
 from src.common.config import config
 from src.common.utils import get_device
 
+logger = logging.getLogger(__name__)
+
+
 class WhisperASR:
     def __init__(self):
         # 从配置文件读取参数
@@ -23,7 +27,7 @@ class WhisperASR:
         # 使用统一的设备选择逻辑
         self.device = get_device(device_str)
             
-        print(f"加载ASR模型: {model_name} 在 {self.device} 上...")
+        logger.info("加载ASR模型: %s 在 %s 上...", model_name, self.device)
         try:
             self.model = whisper.load_model(model_name, device=self.device)
         except Exception as e:
@@ -56,15 +60,15 @@ class WhisperASR:
         try:
             # 直接传递 audio_input 给模型，不再创建临时文件
             result = self.model.transcribe(
-                audio_input, 
+                audio_input,
                 language=language,
-                fp16=(self.device == "cuda")
+                fp16=self.device.startswith("cuda"),
             )
-            text = result["text"].strip()
-            return text
+            return result["text"].strip()
         except Exception as e:
-            print(f"ASR转录错误: {e}")
-            return ""
+            # 不再静默吞掉错误：向上抛出，便于调用方区分“无语音”与“转写失败”
+            logger.error("ASR 转录失败: %s", e)
+            raise RuntimeError(f"ASR 转录失败: {e}") from e
 
     def transcribe_bytes(self, audio_bytes: bytes) -> str:
         """直接从二进制流转录
@@ -77,7 +81,11 @@ class WhisperASR:
         """
         # 读取字节流
         audio_data, sr = sf.read(io.BytesIO(audio_bytes))
-        
+
+        # 多声道降混为单声道 (Whisper 只接受一维单声道数组)
+        if audio_data.ndim > 1:
+            audio_data = audio_data.mean(axis=1)
+
         # 确保数据是 float32 (soundfile 默认可能是 float64)
         audio_data = audio_data.astype(np.float32)
 
@@ -88,12 +96,20 @@ class WhisperASR:
             
         return self.transcribe(audio_data)
 
-# 线程安全的单例模式
-@lru_cache(maxsize=1)
+# 线程安全的单例：双重检查锁，确保高并发首次请求只加载一份模型
+_asr_instance: Optional[WhisperASR] = None
+_asr_lock = threading.Lock()
+
+
 def get_asr_instance() -> WhisperASR:
     """获取 ASR 单例实例
 
     Returns:
         WhisperASR: 单例 ASR 实例
     """
-    return WhisperASR()
+    global _asr_instance
+    if _asr_instance is None:
+        with _asr_lock:
+            if _asr_instance is None:
+                _asr_instance = WhisperASR()
+    return _asr_instance

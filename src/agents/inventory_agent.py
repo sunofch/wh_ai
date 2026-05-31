@@ -140,7 +140,10 @@ def get_inventory_agent() -> _InventoryPipeline:
     graph.add_node("node_restock", node_restock)
     graph.add_edge(START, "node_query")
     graph.add_edge("node_query", "node_work_order")
-    graph.add_conditional_edges("node_work_order", _route_restock)
+    graph.add_conditional_edges("node_work_order", _route_restock, {
+        "node_restock": "node_restock",
+        END: END,
+    })
     graph.add_edge("node_restock", END)
 
     return _InventoryPipeline(graph.compile())

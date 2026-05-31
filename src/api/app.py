@@ -2,6 +2,7 @@
 from __future__ import annotations
 import asyncio
 import base64
+import binascii
 import logging
 import os
 from collections import OrderedDict
@@ -28,7 +29,10 @@ REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379/0")
 
 
 def _transcribe_audio_base64(audio_base64: str) -> str:
-    audio_bytes = base64.b64decode(audio_base64, validate=True)
+    try:
+        audio_bytes = base64.b64decode(audio_base64, validate=True)
+    except (binascii.Error, ValueError) as e:
+        raise ValueError(f"非法的 base64 音频数据: {e}") from e
     from src.asr import get_asr_instance
     return get_asr_instance().transcribe_bytes(audio_bytes).strip()
 
@@ -135,7 +139,21 @@ def _register_routes(app: FastAPI):
 
         effective_text = req.text or ""
         if req.audio_base64:
-            transcribed = await asyncio.to_thread(_transcribe_audio_base64, req.audio_base64)
+            try:
+                transcribed = await asyncio.to_thread(_transcribe_audio_base64, req.audio_base64)
+            except ValueError:
+                # base64 已在上方校验，这里属于罕见竞态，按非法输入处理
+                raise HTTPException(
+                    status_code=422,
+                    detail={"error": "invalid_base64", "field": "audio_base64"},
+                )
+            except Exception as e:
+                # ASR 转写本身失败（模型/解码错误），属于服务端错误
+                logger.error("ASR 转写失败: %s", e)
+                raise HTTPException(
+                    status_code=500,
+                    detail={"error": "asr_failed"},
+                )
             if not transcribed and not effective_text and not req.image_base64:
                 raise HTTPException(
                     status_code=422,
