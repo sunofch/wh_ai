@@ -23,9 +23,34 @@ from src.agents.inventory.tools import (
     create_work_order,
     query_inventory,
 )
+from src.agents.state import AgentState
 from src.warehouse.models import OrderItem, OrderPriority, TaskType, WorkOrder
 
 AGENT_NAME = "inventory_agent"
+
+
+def _merge_work_orders(orders: list[WorkOrder]) -> WorkOrder:
+    """将多个 WorkOrder 合并为一个，取最高优先级，合并并重新编号所有 items。"""
+    if not orders:
+        return WorkOrder(order_id=0, source="vlm", priority=OrderPriority.NORMAL)
+    if len(orders) == 1:
+        return orders[0]
+
+    merged_priority = max(o.priority for o in orders)
+    merged_metadata: dict = {}
+    for o in orders:
+        merged_metadata.update(o.metadata)
+
+    all_items = [item for o in orders for item in o.items]
+    renumbered = [item.model_copy(update={"item_id": i + 1}) for i, item in enumerate(all_items)]
+
+    return WorkOrder(
+        order_id=orders[0].order_id,
+        source="vlm",
+        priority=merged_priority,
+        items=renumbered,
+        metadata=merged_metadata,
+    )
 
 
 class InventoryState(TypedDict):
@@ -150,3 +175,28 @@ def get_inventory_agent() -> _InventoryPipeline:
     graph.add_edge("node_restock", END)
 
     return _InventoryPipeline(graph.compile())
+
+
+# ── BaseAgent 包装 ────────────────────────────────────────────────────────────
+
+class InventoryAgent:
+    """库存管理 Agent 的 BaseAgent 封装。
+
+    对 state.instructions 逐条查库存 / 建工单 / 不足补货（fan-out），
+    合并为单个 work_order 写回 state。
+    """
+
+    name = AGENT_NAME
+    description = (
+        "对已解析的指令列表 instructions 逐条查询库存、创建出入库工单、"
+        "库存不足时自动补货，并合并为单个 work_order。"
+        "需在 instruction_agent 解析出 instructions 之后调用。"
+    )
+
+    def run(self, state: AgentState) -> AgentState:
+        pipeline = get_inventory_agent()
+        orders = [
+            pipeline.run(json.dumps(inst.model_dump(), ensure_ascii=False))
+            for inst in state.instructions
+        ]
+        return state.with_updates(work_order=_merge_work_orders(orders))

@@ -133,3 +133,43 @@ def test_inventory_agent_run_with_restock():
     assert isinstance(order, WorkOrder)
     assert order.metadata.get("restock_order_id") == "RS-TEST1234"
     mock_restock.invoke.assert_called_once()
+
+
+# ── 6. _merge_work_orders 合并逻辑（自 supervisor 迁入本域）────────────────────
+
+def test_merge_work_orders_empty():
+    """_merge_work_orders 空列表返回默认 WorkOrder。"""
+    from src.agents.inventory.agent import _merge_work_orders
+    from src.warehouse.models import WorkOrder, OrderPriority
+    result = _merge_work_orders([])
+    assert isinstance(result, WorkOrder)
+    assert result.priority == OrderPriority.NORMAL
+    assert result.items == []
+
+
+def test_merge_work_orders_single():
+    """_merge_work_orders 单个 WorkOrder 原样返回。"""
+    from src.agents.inventory.agent import _merge_work_orders
+    from src.warehouse.models import WorkOrder, OrderPriority
+    order = WorkOrder(order_id=1, source="vlm", priority=OrderPriority.NORMAL)
+    result = _merge_work_orders([order])
+    assert result is order
+
+
+def test_merge_work_orders_multiple():
+    """_merge_work_orders 多个 WorkOrder 取最高优先级，合并 items 并重新编号。"""
+    from src.agents.inventory.agent import _merge_work_orders
+    from src.warehouse.models import WorkOrder, OrderItem, TaskType, OrderPriority
+    o1 = WorkOrder(
+        order_id=1, source="vlm", priority=OrderPriority.NORMAL,
+        items=[OrderItem(item_id=1, task_type=TaskType.OUTBOUND, quantity=1)],
+    )
+    o2 = WorkOrder(
+        order_id=2, source="vlm", priority=OrderPriority.URGENT,
+        items=[OrderItem(item_id=1, task_type=TaskType.OUTBOUND, quantity=2)],
+    )
+    result = _merge_work_orders([o1, o2])
+    assert result.priority == OrderPriority.URGENT
+    assert len(result.items) == 2
+    assert result.items[0].item_id == 1
+    assert result.items[1].item_id == 2

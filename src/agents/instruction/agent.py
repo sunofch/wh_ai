@@ -23,6 +23,7 @@ from pydantic import ValidationError
 
 from src.agents.instruction.tools import query_knowledge_base
 from src.agents.schemas import ParsedInstruction
+from src.agents.state import AgentState
 from src.common.config import config
 from src.common.prompts import load_prompts
 
@@ -156,3 +157,62 @@ def get_instruction_agent():
     graph.add_edge("call_model_final", END)
 
     return graph.compile()
+
+
+# ── BaseAgent 包装 ────────────────────────────────────────────────────────────
+
+def _build_content(text: str | None, image: str | None) -> list[dict]:
+    """将文本 / 图片输入组装为多模态 message content。"""
+    content: list[dict] = []
+    if image:
+        import base64
+        from pathlib import Path
+
+        img_b64 = base64.b64encode(Path(image).read_bytes()).decode()
+        content.append({
+            "type": "image_url",
+            "image_url": {"url": f"data:image/jpeg;base64,{img_b64}"},
+        })
+    if text:
+        content.append({"type": "text", "text": text})
+    if not content:
+        content = [{"type": "text", "text": "无有效输入"}]
+    return content
+
+
+def _extract_last_text(result: dict) -> str:
+    """从 Agent 结果中提取最后一条消息的文本内容。"""
+    messages = result.get("messages", [])
+    if not messages:
+        return ""
+    content = messages[-1].content
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        for part in content:
+            if isinstance(part, dict) and part.get("type") == "text":
+                return part.get("text", "")
+    return str(content)
+
+
+class InstructionAgent:
+    """领料解析 Agent 的 BaseAgent 封装。
+
+    读取 state.user_input / state.image，调用内部 LangGraph 解析图，
+    将结构化结果写回 state.instructions。
+    """
+
+    name = AGENT_NAME
+    description = (
+        "解析用户的领料 / 出入库自然语言或图片指令，"
+        "抽取备件名称、型号、数量、出入库动作，产出结构化指令列表 instructions。"
+        "当尚未解析出 instructions 时应首先调用本 Agent。"
+    )
+
+    def run(self, state: AgentState) -> AgentState:
+        content = _build_content(state.user_input, state.image)
+        result = get_instruction_agent().invoke(
+            {"messages": [{"role": "user", "content": content}]}
+        )
+        instructions = _parse_and_validate(_extract_last_text(result))
+        return state.with_updates(instructions=instructions)

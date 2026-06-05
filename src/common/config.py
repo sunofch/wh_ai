@@ -55,9 +55,17 @@ class VLM35Config(BaseAppConfig):
 
 
 class SupervisorConfig(BaseAppConfig):
-    """Supervisor / Router Agent 模型配置"""
+    """Supervisor / Router Agent 模型配置。
+
+    路由 LLM 的连接地址为 http://{host}:{port}/v1；port 留空(0)时
+    自动复用 instruction_agent 所用的 vLLM 端点(vllm_server.base_port + 1)。
+    """
     model: str = Field(default="Qwen/Qwen3.5-4B", alias="SUPERVISOR_MODEL")
     max_tokens: int = Field(default=512, alias="SUPERVISOR_MAX_TOKENS")
+    host: str = Field(default="localhost", alias="SUPERVISOR_HOST")
+    port: int = Field(default=0, alias="SUPERVISOR_PORT")  # 0 = 复用 vLLM base_port+1
+    temperature: float = Field(default=0.0, alias="SUPERVISOR_TEMPERATURE")
+    max_steps: int = Field(default=6, alias="SUPERVISOR_MAX_STEPS")  # 路由循环上限，防死循环
 
 
 
