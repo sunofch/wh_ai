@@ -12,7 +12,7 @@ from unittest.mock import patch, MagicMock
 # ── 1. 名称常量 ────────────────────────────────────────────────────────────────
 
 def test_agent_name_constant():
-    from src.agents.instruction_agent import AGENT_NAME
+    from src.agents.instruction.agent import AGENT_NAME
     assert AGENT_NAME == "instruction_agent"
 
 
@@ -22,9 +22,9 @@ def test_get_instruction_agent_passes_name():
     """instruction_agent 已改为自定义 LangGraph，使用两个 ChatOpenAI 实例（llm_base + llm_lora）。"""
     mock_llm = MagicMock()
 
-    with patch("src.agents.instruction_agent.ChatOpenAI", return_value=mock_llm) as MockChat:
+    with patch("src.agents.instruction.agent.ChatOpenAI", return_value=mock_llm) as MockChat:
 
-        from src.agents.instruction_agent import get_instruction_agent
+        from src.agents.instruction.agent import get_instruction_agent
         get_instruction_agent.cache_clear()
         agent = get_instruction_agent()
 
@@ -148,7 +148,7 @@ def test_run_no_agv_scheduling():
 
     with patch("src.agents.supervisor.get_instruction_agent", return_value=mock_instruction_agent), \
          patch("src.agents.supervisor.get_inventory_agent", return_value=mock_inventory_agent), \
-         patch("src.agents.agv_agent.run") as mock_agv:
+         patch("src.agents.agv.agent.run") as mock_agv:
 
         from src.agents.supervisor import run
         run(text="液压泵1台入库")
@@ -182,14 +182,14 @@ def test_agv_agent_run_calls_pipeline():
     mock_sim_result.agv_utilization = 0.8
     mock_sim_result.planning_time = 0.1
 
-    with patch("src.agents.agv_agent.TaskDecomposer") as MockTD, \
-         patch("src.agents.agv_agent.OrderClusterer") as MockCluster, \
-         patch("src.agents.agv_agent.Simulator") as MockSim:
+    with patch("src.agents.agv.agent.TaskDecomposer") as MockTD, \
+         patch("src.agents.agv.agent.OrderClusterer") as MockCluster, \
+         patch("src.agents.agv.agent.Simulator") as MockSim:
         MockTD.return_value.decompose.return_value = []
         MockCluster.return_value.cluster.return_value = []
         MockSim.return_value.run.return_value = mock_sim_result
 
-        from src.agents.agv_agent import run as agv_run
+        from src.agents.agv.agent import run as agv_run
         sched, sim = agv_run(
             orders, mock_wmap, mock_fleet, mock_config,
             [], [], "test-run-id"

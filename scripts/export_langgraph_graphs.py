@@ -51,7 +51,6 @@ def _install_lightweight_package(name: str, path: Path) -> None:
 def _avoid_package_import_side_effects() -> None:
     _install_lightweight_package("src", PROJECT_ROOT / "src")
     _install_lightweight_package("src.agents", PROJECT_ROOT / "src" / "agents")
-    _install_lightweight_package("src.agent_tools", PROJECT_ROOT / "src" / "agent_tools")
     _install_lightweight_package("src.common", PROJECT_ROOT / "src" / "common")
     _install_lightweight_package("src.warehouse", PROJECT_ROOT / "src" / "warehouse")
 
@@ -61,14 +60,14 @@ GraphFactory = Callable[[], Any]
 
 def _get_instruction_graph() -> Any:
     _avoid_package_import_side_effects()
-    from src.agents.instruction_agent import get_instruction_agent
+    from src.agents.instruction.agent import get_instruction_agent
 
     return get_instruction_agent()
 
 
 def _get_inventory_graph() -> Any:
     _avoid_package_import_side_effects()
-    from src.agents.inventory_agent import get_inventory_agent
+    from src.agents.inventory.agent import get_inventory_agent
 
     pipeline = get_inventory_agent()
     graph = getattr(pipeline, "_graph", None)

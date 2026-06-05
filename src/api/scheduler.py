@@ -37,7 +37,7 @@ async def scheduler_loop(
     """
     from datetime import datetime
     from src.api.queue_manager import RedisOrderQueue
-    from src.agents import agv_agent
+    from src.agents.agv import agent as agv_agent
 
     is_redis = isinstance(queue, RedisOrderQueue)
 

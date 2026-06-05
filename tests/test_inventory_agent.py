@@ -22,13 +22,13 @@ def test_create_work_order_returns_created():
                          quantity=3, resolved_pick="Mech1_R1_B1", resolved_dest="PORT_OUT_1")],
     )
     # StockManager 在函数体内 import，需 patch 源模块路径
-    with patch("src.agent_tools.order_tool.OrderManager") as MockOM, \
-         patch("src.agent_tools.order_tool.MapRegistry") as MockReg, \
+    with patch("src.agents.inventory.tools.OrderManager") as MockOM, \
+         patch("src.agents.inventory.tools.MapRegistry") as MockReg, \
          patch("src.warehouse.wms.inventory_db.StockManager"):
         MockReg.get.return_value = MagicMock()
         MockOM.return_value.from_port_instruction.return_value = mock_order
 
-        from src.agent_tools.order_tool import create_work_order
+        from src.agents.inventory.tools import create_work_order
         result = create_work_order.invoke({
             "part_name": "深沟球轴承", "model": "6208-Mech1",
             "quantity": 3, "action_required": "出库",
@@ -41,13 +41,13 @@ def test_create_work_order_returns_created():
 
 
 def test_create_work_order_returns_failed_when_none():
-    with patch("src.agent_tools.order_tool.OrderManager") as MockOM, \
-         patch("src.agent_tools.order_tool.MapRegistry") as MockReg, \
+    with patch("src.agents.inventory.tools.OrderManager") as MockOM, \
+         patch("src.agents.inventory.tools.MapRegistry") as MockReg, \
          patch("src.warehouse.wms.inventory_db.StockManager"):
         MockReg.get.return_value = MagicMock()
         MockOM.return_value.from_port_instruction.return_value = None
 
-        from src.agent_tools.order_tool import create_work_order
+        from src.agents.inventory.tools import create_work_order
         result = create_work_order.invoke({
             "part_name": "", "model": "", "quantity": 0, "action_required": "",
         })
@@ -59,12 +59,12 @@ def test_create_work_order_returns_failed_when_none():
 # ── 2. create_restock_order 工具 ──────────────────────────────────────────────
 
 def test_create_restock_order_returns_order_id():
-    with patch("src.agent_tools.order_tool.MapRegistry") as MockReg, \
-         patch("src.agent_tools.order_tool.OrderManager") as MockOM:
+    with patch("src.agents.inventory.tools.MapRegistry") as MockReg, \
+         patch("src.agents.inventory.tools.OrderManager") as MockOM:
         MockReg.get.return_value = MagicMock()
         MockOM.return_value.from_port_instruction.return_value = MagicMock()
 
-        from src.agent_tools.order_tool import create_restock_order
+        from src.agents.inventory.tools import create_restock_order
         result = create_restock_order.invoke({
             "model": "6208-Mech1", "part_name": "深沟球轴承",
             "shortage": 3, "is_urgent": False,
@@ -79,14 +79,14 @@ def test_create_restock_order_returns_order_id():
 # ── 3. inventory_agent 名称常量 ───────────────────────────────────────────────
 
 def test_inventory_agent_name_constant():
-    from src.agents.inventory_agent import AGENT_NAME
+    from src.agents.inventory.agent import AGENT_NAME
     assert AGENT_NAME == "inventory_agent"
 
 
 # ── 4. get_inventory_agent 返回 pipeline ──────────────────────────────────────
 
 def test_get_inventory_agent_returns_pipeline():
-    from src.agents.inventory_agent import get_inventory_agent
+    from src.agents.inventory.agent import get_inventory_agent
     get_inventory_agent.cache_clear()
     agent = get_inventory_agent()
 
@@ -97,7 +97,7 @@ def test_get_inventory_agent_returns_pipeline():
 
 def test_inventory_agent_run_with_restock():
     """库存不足时，inventory_agent 调用 create_restock_order 并写入 metadata。"""
-    from src.agents.inventory_agent import get_inventory_agent
+    from src.agents.inventory.agent import get_inventory_agent
     from src.warehouse.models import WorkOrder
 
     get_inventory_agent.cache_clear()
@@ -118,9 +118,9 @@ def test_inventory_agent_run_with_restock():
     }
     restock_result = {"order_id": "RS-TEST1234", "status": "created"}
 
-    with patch("src.agents.inventory_agent.query_inventory") as mock_query, \
-         patch("src.agents.inventory_agent.create_work_order") as mock_work_order, \
-         patch("src.agents.inventory_agent.create_restock_order") as mock_restock:
+    with patch("src.agents.inventory.agent.query_inventory") as mock_query, \
+         patch("src.agents.inventory.agent.create_work_order") as mock_work_order, \
+         patch("src.agents.inventory.agent.create_restock_order") as mock_restock:
         mock_query.invoke.return_value = json.dumps(inventory_result, ensure_ascii=False)
         mock_work_order.invoke.return_value = json.dumps(work_order_result, ensure_ascii=False)
         mock_restock.invoke.return_value = json.dumps(restock_result, ensure_ascii=False)

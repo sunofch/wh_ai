@@ -1,12 +1,54 @@
+"""库存管理 Agent 的工具集合。
+
+合并自原 agent_tools/inventory_tool.py 与 agent_tools/order_tool.py：
+  - query_inventory       查询库存是否充足
+  - create_work_order     创建出入库工单
+  - create_restock_order  库存不足时创建补货入库订单
+  - create_restock        代码内部直接调用的补货逻辑（非 @tool）
+"""
 import json
 import uuid
+from functools import lru_cache
 
 from langchain_core.tools import tool
 
 from src.parser.parser import PortInstruction
-from src.warehouse.wms.order_manager import OrderManager
 from src.warehouse.maps.base import MapRegistry
+from src.warehouse.wms.inventory_db import StockManager
+from src.warehouse.wms.order_manager import OrderManager
 import src.warehouse.maps.medium_57x47  # noqa: F401 触发注册
+
+
+@lru_cache(maxsize=1)
+def _get_stock_manager() -> StockManager:
+    return StockManager()
+
+
+@tool
+def query_inventory(model: str, part_name: str, quantity: int) -> str:
+    """检查指定备件的库存是否满足需求。model 或 part_name 至少提供一个。"""
+    db = _get_stock_manager()
+    item = db.query(model) if model else None
+    if item is None and part_name:
+        item = db.query_by_name(part_name)
+
+    if item is None:
+        return json.dumps(
+            {"available": 0, "location": "", "sufficient": False},
+            ensure_ascii=False,
+        )
+
+    available = item.quantity - item.reserved
+    sufficient = available >= quantity
+    return json.dumps(
+        {
+            "available": available,
+            "location": item.location,
+            "sufficient": sufficient,
+            "shortage": 0 if sufficient else quantity - available,
+        },
+        ensure_ascii=False,
+    )
 
 
 def create_restock(
@@ -41,8 +83,6 @@ def create_work_order(
     is_urgent: bool = False,
 ) -> str:
     """根据领料指令创建出入库工单。action_required 为 '出库'/'入库'/'调库'。"""
-    from src.warehouse.wms.inventory_db import StockManager
-
     map_cfg = MapRegistry.get("medium_57x47")
     db = StockManager()
     om = OrderManager(map_cfg)

@@ -14,8 +14,8 @@ from __future__ import annotations
 import json
 from typing import Any
 
-from src.agents.instruction_agent import get_instruction_agent
-from src.agents.inventory_agent import get_inventory_agent
+from src.agents.instruction.agent import get_instruction_agent
+from src.agents.inventory.agent import get_inventory_agent
 from src.agents.work_order_assembler import print_agent_messages
 from src.warehouse.models import OrderPriority, WorkOrder
 

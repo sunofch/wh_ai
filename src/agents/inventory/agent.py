@@ -18,8 +18,11 @@ from typing import TypedDict
 
 from langgraph.graph import END, START, StateGraph
 
-from src.agent_tools.inventory_tool import query_inventory
-from src.agent_tools.order_tool import create_restock_order, create_work_order
+from src.agents.inventory.tools import (
+    create_restock_order,
+    create_work_order,
+    query_inventory,
+)
 from src.warehouse.models import OrderItem, OrderPriority, TaskType, WorkOrder
 
 AGENT_NAME = "inventory_agent"

@@ -8,8 +8,8 @@ def test_query_knowledge_base_returns_json():
     mock_manager.retrieve.return_value = [{"text": r} for r in mock_results]
     mock_manager.mode = "traditional"
 
-    with patch("src.agent_tools.knowledge_tool.get_unified_rag_manager", return_value=mock_manager):
-        from src.agent_tools.knowledge_tool import query_knowledge_base
+    with patch("src.agents.instruction.tools.get_unified_rag_manager", return_value=mock_manager):
+        from src.agents.instruction.tools import query_knowledge_base
         result = query_knowledge_base.invoke({"query": "轴承", "top_k": 2})
 
     data = json.loads(result)
@@ -33,8 +33,8 @@ def test_query_inventory_sufficient():
     mock_db.query.return_value = mock_item
     mock_db.query_by_name.return_value = None
 
-    with patch("src.agent_tools.inventory_tool._get_stock_manager", return_value=mock_db):
-        from src.agent_tools.inventory_tool import query_inventory
+    with patch("src.agents.inventory.tools._get_stock_manager", return_value=mock_db):
+        from src.agents.inventory.tools import query_inventory
         result = query_inventory.invoke({
             "model": "6208-2RS-C3-SKF-Mech1",
             "part_name": "深沟球轴承",
@@ -62,8 +62,8 @@ def test_query_inventory_insufficient():
     mock_db.query.return_value = mock_item
     mock_db.query_by_name.return_value = None
 
-    with patch("src.agent_tools.inventory_tool._get_stock_manager", return_value=mock_db):
-        from src.agent_tools.inventory_tool import query_inventory
+    with patch("src.agents.inventory.tools._get_stock_manager", return_value=mock_db):
+        from src.agents.inventory.tools import query_inventory
         result = query_inventory.invoke({
             "model": "6208-2RS-C3-SKF-Mech1",
             "part_name": "深沟球轴承",
@@ -79,12 +79,12 @@ def test_create_restock_returns_order_id():
     """create_restock 是普通函数，直接调用并断言返回结构。"""
     mock_map_cfg = MagicMock()
 
-    with patch("src.agent_tools.order_tool.MapRegistry") as MockRegistry, \
-         patch("src.agent_tools.order_tool.OrderManager") as MockOM:
+    with patch("src.agents.inventory.tools.MapRegistry") as MockRegistry, \
+         patch("src.agents.inventory.tools.OrderManager") as MockOM:
         MockRegistry.get.return_value = mock_map_cfg
         MockOM.return_value.from_port_instruction.return_value = MagicMock()
 
-        from src.agent_tools.order_tool import create_restock
+        from src.agents.inventory.tools import create_restock
         result = create_restock(
             model="6208-2RS-C3-SKF-Mech1",
             part_name="深沟球轴承",

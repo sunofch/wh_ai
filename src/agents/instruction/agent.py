@@ -21,7 +21,7 @@ from langgraph.graph.message import add_messages
 from langgraph.prebuilt import ToolNode
 from pydantic import ValidationError
 
-from src.agent_tools.knowledge_tool import query_knowledge_base
+from src.agents.instruction.tools import query_knowledge_base
 from src.agents.schemas import ParsedInstruction
 from src.common.config import config
 from src.common.prompts import load_prompts
