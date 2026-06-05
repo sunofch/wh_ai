@@ -10,7 +10,7 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
-from src.agents.schemas import ParsedInstruction
+from src.agents.schemas import InventoryReport, ParsedInstruction
 from src.warehouse.models import WorkOrder
 
 # 路由终止标记：Supervisor 写入 next 表示无需再调用任何 Agent。
@@ -30,8 +30,12 @@ class AgentState(BaseModel):
     # ── instruction_agent 产出 ────────────────────────────
     instructions: list[ParsedInstruction] = Field(default_factory=list)
 
-    # ── inventory_agent 产出 ──────────────────────────────
+    # ── inventory_agent 产出（出入库意图）──────────────────
     work_order: WorkOrder | None = None
+
+    # ── inventory_agent 产出（查询意图）────────────────────
+    inventory_report: InventoryReport | None = None
+    intent: str = ""  # inventory_agent 写入：本次意图 query / order
 
     # ── 路由控制 ──────────────────────────────────────────
     next: str = ""  # Supervisor 写入：下一个 Agent 名 / FINISH

@@ -1,7 +1,8 @@
 """库存管理 Agent 的工具集合。
 
 合并自原 agent_tools/inventory_tool.py 与 agent_tools/order_tool.py：
-  - query_inventory       查询库存是否充足
+  - query_inventory       查询库存是否充足（出入库链路用）
+  - lookup_stock_item     查询备件完整库存明细（查询意图用，返回 InventoryItem）
   - create_work_order     创建出入库工单
   - create_restock_order  库存不足时创建补货入库订单
   - create_restock        代码内部直接调用的补货逻辑（非 @tool）
@@ -14,6 +15,7 @@ from langchain_core.tools import tool
 
 from src.parser.parser import PortInstruction
 from src.warehouse.maps.base import MapRegistry
+from src.warehouse.models import InventoryItem
 from src.warehouse.wms.inventory_db import StockManager
 from src.warehouse.wms.order_manager import OrderManager
 import src.warehouse.maps.medium_57x47  # noqa: F401 触发注册
@@ -22,6 +24,15 @@ import src.warehouse.maps.medium_57x47  # noqa: F401 触发注册
 @lru_cache(maxsize=1)
 def _get_stock_manager() -> StockManager:
     return StockManager()
+
+
+def lookup_stock_item(model: str | None, part_name: str | None) -> InventoryItem | None:
+    """按型号优先、名称兜底，返回备件完整库存明细（查询意图用）。"""
+    db = _get_stock_manager()
+    item = db.query(model) if model else None
+    if item is None and part_name:
+        item = db.query_by_name(part_name)
+    return item
 
 
 @tool

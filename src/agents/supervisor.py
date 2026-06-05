@@ -26,6 +26,7 @@ from pydantic import BaseModel
 
 from src.agents.base import BaseAgent
 from src.agents.registry import build_registry
+from src.agents.schemas import AgentResult, WorkOrderResult
 from src.agents.state import FINISH, AgentState
 from src.common.config import config
 from src.warehouse.models import OrderPriority, WorkOrder
@@ -140,19 +141,29 @@ def run(
     text: str | None = None,
     image: str | None = None,
     verbose: bool = False,
-) -> WorkOrder:
-    """Supervisor 主入口。返回合并后的单个 WorkOrder，不涉及 AGV 调度。"""
+) -> AgentResult:
+    """Supervisor 主入口。返回统一结果信封 AgentResult，不涉及 AGV 调度。
+
+    - 查询意图 → AgentResult(intent="query", result=InventoryReport)
+    - 出入库意图 → AgentResult(intent="order", result=WorkOrderResult)
+    """
     initial = AgentState(user_input=text or "", image=image)
     final = _get_graph().invoke(initial)
 
     if isinstance(final, AgentState):
-        work_order, history = final.work_order, final.history
+        intent, work_order = final.intent, final.work_order
+        report, history = final.inventory_report, final.history
     else:  # LangGraph 返回 channel 值映射
-        work_order, history = final.get("work_order"), final.get("history", [])
+        intent, work_order = final.get("intent", ""), final.get("work_order")
+        report, history = final.get("inventory_report"), final.get("history", [])
 
     if verbose:
         print(f"[supervisor] 路由路径: {' → '.join(history) or '(空)'}")
 
-    return work_order or WorkOrder(
+    if intent == "query" and report is not None:
+        return AgentResult(intent="query", result=report)
+
+    order = work_order or WorkOrder(
         order_id=0, source="vlm", priority=OrderPriority.NORMAL
     )
+    return AgentResult(intent=intent or "order", result=WorkOrderResult(order=order))

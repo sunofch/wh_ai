@@ -67,8 +67,17 @@ def process_order(
                 f.write(img_bytes)
                 tmp_path = f.name
 
-        order = supervisor_run(text=text, image=tmp_path)
+        result = supervisor_run(text=text, image=tmp_path)
 
+        # 查询意图不产出工单、不进调度队列，直接返回库存报告
+        if result.intent != "order" or result.result.kind != "work_order":
+            return {
+                "status": "completed",
+                "intent": result.intent,
+                "data": result.result.model_dump(),
+            }
+
+        order = result.result.order
         order_dict = {
             "order_id": order.order_id,
             "source": order.source,

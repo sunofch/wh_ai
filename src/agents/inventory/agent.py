@@ -21,12 +21,17 @@ from langgraph.graph import END, START, StateGraph
 from src.agents.inventory.tools import (
     create_restock_order,
     create_work_order,
+    lookup_stock_item,
     query_inventory,
 )
+from src.agents.schemas import InventoryReport
 from src.agents.state import AgentState
 from src.warehouse.models import OrderItem, OrderPriority, TaskType, WorkOrder
 
 AGENT_NAME = "inventory_agent"
+
+# 出入库动作关键词；指令中出现任一即判为出入库意图，否则视为查询意图。
+_ORDER_ACTIONS = {"出库", "入库", "调库"}
 
 
 def _merge_work_orders(orders: list[WorkOrder]) -> WorkOrder:
@@ -179,24 +184,59 @@ def get_inventory_agent() -> _InventoryPipeline:
 
 # ── BaseAgent 包装 ────────────────────────────────────────────────────────────
 
+def _classify_intent(instructions: list) -> str:
+    """规则意图分类：指令含出入库动作 → order，否则 → query。
+
+    复用 instruction_agent 已抽取的 action_required 字段，不额外调用 LLM。
+    无解析结果时回退为 order（保持旧默认：建空工单）。
+    """
+    if not instructions:
+        return "order"
+    if any((inst.action_required or "") in _ORDER_ACTIONS for inst in instructions):
+        return "order"
+    return "query"
+
+
+def _summarize_stock(items: list) -> str:
+    """把库存明细拼成简短的自然语言概述。"""
+    if not items:
+        return "未查询到匹配备件"
+    return "；".join(
+        f"{it.part_name}({it.model}) 可用{it.available}/在库{it.quantity}，库位{it.location}"
+        for it in items
+    )
+
+
 class InventoryAgent:
     """库存管理 Agent 的 BaseAgent 封装。
 
-    对 state.instructions 逐条查库存 / 建工单 / 不足补货（fan-out），
-    合并为单个 work_order 写回 state。
+    内部按 action_required 区分两类意图：
+      - query：逐条查库存明细，产出 inventory_report（不建工单）
+      - order：逐条查库存 / 建工单 / 不足补货（fan-out），合并为单个 work_order
     """
 
     name = AGENT_NAME
     description = (
-        "对已解析的指令列表 instructions 逐条查询库存、创建出入库工单、"
-        "库存不足时自动补货，并合并为单个 work_order。"
+        "处理库存相关请求。支持两种意图："
+        "① 查询——回报备件的库存数量 / 可用量 / 库位；"
+        "② 出入库——按指令创建出入库工单、库存不足时自动补货。"
         "需在 instruction_agent 解析出 instructions 之后调用。"
     )
 
     def run(self, state: AgentState) -> AgentState:
+        intent = _classify_intent(state.instructions)
+        if intent == "query":
+            items = [
+                item
+                for inst in state.instructions
+                if (item := lookup_stock_item(inst.model, inst.part_name)) is not None
+            ]
+            report = InventoryReport(items=items, summary=_summarize_stock(items))
+            return state.with_updates(intent="query", inventory_report=report)
+
         pipeline = get_inventory_agent()
         orders = [
             pipeline.run(json.dumps(inst.model_dump(), ensure_ascii=False))
             for inst in state.instructions
         ]
-        return state.with_updates(work_order=_merge_work_orders(orders))
+        return state.with_updates(intent="order", work_order=_merge_work_orders(orders))

@@ -22,6 +22,7 @@ except ImportError:
 
 from src.asr import get_asr_instance
 from src.common.config import config
+from src.agents.schemas import AgentResult
 from src.warehouse.models import WorkOrder
 
 # 尝试导入 RAG 模块
@@ -103,7 +104,7 @@ class InstructionParser:
         audio: Optional[Union[str, bytes, np.ndarray]] = None,
         text: Optional[str] = None,
         image: Optional[Any] = None
-    ) -> WorkOrder:
+    ) -> AgentResult:
         context_text = ""
 
         if audio is not None:
@@ -264,16 +265,31 @@ def interactive_mode() -> None:
             traceback.print_exc()
             logger.error(f"发生错误: {e}")
 
-def print_result(result: WorkOrder) -> None:
+def print_result(result: AgentResult) -> None:
     print("─" * 40)
+
+    # 查询意图：打印库存报告
+    if result.result.kind == "inventory_report":
+        report = result.result
+        print("【库存查询结果】")
+        if not report.items:
+            print("  未查询到匹配备件")
+        for it in report.items:
+            print(f"  备件: {it.part_name or '-'}  型号: {it.model or '-'}"
+                  f"  可用: {it.available}/{it.quantity}  库位: {it.location}")
+        print("─" * 40)
+        return
+
+    # 出入库意图：打印工单摘要
+    order = result.result.order
     print("【WorkOrder 摘要】")
-    for item in result.items:
+    for item in order.items:
         print(f"  备件: {item.part_name or '-'}  型号: {item.model or '-'}"
               f"  数量: {item.quantity}  类型: {item.task_type.value}")
         if item.resolved_pick:
             print(f"  取货位: {item.resolved_pick}  → 送货位: {item.resolved_dest}")
-    if result.metadata.get("restock_order_id"):
-        print(f"  ⚠ 补货单: {result.metadata['restock_order_id']}")
+    if order.metadata.get("restock_order_id"):
+        print(f"  ⚠ 补货单: {order.metadata['restock_order_id']}")
     print("─" * 40)
 
 
