@@ -60,11 +60,6 @@ class SupervisorConfig(BaseAppConfig):
     max_tokens: int = Field(default=512, alias="SUPERVISOR_MAX_TOKENS")
 
 
-class ForecastWarningAgentConfig(BaseAppConfig):
-    """Agent 4：预测预警 Agent 模型配置"""
-    model: str = Field(default="Qwen/Qwen3.5-4B", alias="FORECAST_WARNING_AGENT_MODEL")
-    max_tokens: int = Field(default=1024, alias="FORECAST_WARNING_AGENT_MAX_TOKENS")
-
 
 class OptimizationConfig(BaseAppConfig):
     """港口备件库存预测预警与补货优化配置"""
@@ -274,7 +269,6 @@ class Config(BaseSettings):
     vlm_selector: VLMSelectorConfig = VLMSelectorConfig()
     vllm_server: VLLMServerConfig = VLLMServerConfig()
     supervisor: SupervisorConfig = SupervisorConfig()
-    forecast_warning_agent: ForecastWarningAgentConfig = ForecastWarningAgentConfig()
     optimization: OptimizationConfig = OptimizationConfig()
     parser: ParserConfig = ParserConfig()
 

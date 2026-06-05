@@ -21,7 +21,7 @@
 #      python scripts/export_langgraph_graphs.py --direction LR --png
 #
 # 默认输出目录：outputs/langgraph/
-# 默认导出的图：instruction_agent、inventory_agent、forecast_warning_agent
+# 默认导出的图：instruction_agent、inventory_agent
 from __future__ import annotations
 
 import argparse
@@ -77,17 +77,9 @@ def _get_inventory_graph() -> Any:
     return graph
 
 
-def _get_forecast_warning_graph() -> Any:
-    _avoid_package_import_side_effects()
-    from src.agents.forecast_warning_agent import get_forecast_warning_agent
-
-    return get_forecast_warning_agent()
-
-
 GRAPH_FACTORIES: dict[str, GraphFactory] = {
     "instruction_agent": _get_instruction_graph,
     "inventory_agent": _get_inventory_graph,
-    "forecast_warning_agent": _get_forecast_warning_graph,
 }
 
 
