@@ -2,7 +2,7 @@
 
 多模态港口备件指令解析、知识检索、库存管理、库存预测预警与 AGV 仓储调度一体化实验项目。
 
-项目把文本、图片、音频指令解析成结构化 `WorkOrder`，再进入 WMS/WES/Fleet/Simulation 调度链路，完成库存占用、批量聚合、AGV 路径规划、仿真执行和指标输出。系统同时提供传统 RAG、GraphRAG、FastAPI 异步服务、规则解析降级和不依赖大模型的库存优化测试入口。
+项目把文本、图片、音频指令解析成结构化 `WorkOrder`，再进入 WMS/WES/Fleet/Simulation 调度链路，完成库存预留、批量聚合、AGV 路径规划、仿真执行、指标输出和库存确认/释放。系统同时提供传统 RAG、GraphRAG、FastAPI 异步服务、规则解析降级和不依赖大模型的库存优化测试入口。
 
 ## 目录
 
@@ -23,9 +23,9 @@
 ## 核心能力
 
 - 多模态输入：文本、图片 base64、本地图片、音频 base64、本地音频和命令行录音，音频由 Whisper 转写。
-- 多智能体解析：`Supervisor -> instruction_agent -> inventory_agent`，LLM 负责语义理解，库存和工单创建走确定性 Python 图。
+- 多智能体解析：`supervisor -> instruction_agent -> inventory_agent`，路由由 LangGraph Supervisor 编排，指令解析使用 OpenAI 兼容 vLLM，库存建单走确定性 Python 图。
 - 知识增强：传统 RAG 使用 BGE-M3、BM25、RRF 和 reranker；GraphRAG 使用 LlamaIndex PropertyGraphIndex 与 Neo4j。
-- 库存业务：SQLite 库存、库存查询、出入库工单、库存不足自动补货单、库存确认/释放。
+- 库存业务：SQLite 库存、库存查询、出入库工单、库存不足补货单、库存预留/确认/释放。
 - 预测预警：规则策略的需求预测、风险分级和补货建议，可选 LSTM/DQN 配置预留。
 - AGV 调度：批量任务聚类、A* 路径缓存、OR-Tools TSP、Regret-2 分配、充电策略、仿真指标和 GIF 动画。
 - API 服务：FastAPI + Redis/Celery；vLLM 在线时异步跑 Agent，离线时用规则解析降级并仍可进入调度队列。
@@ -49,12 +49,13 @@
 
 | 模块 | 文件 | 职责 |
 | --- | --- | --- |
-| Supervisor | `src/agents/supervisor.py` | 串联指令解析和库存工单创建，不执行 AGV 调度 |
-| Instruction Agent | `src/agents/instruction_agent.py` | 调用 vLLM/OpenAI 兼容接口，必要时使用知识库工具，输出结构化指令 |
-| Inventory Agent | `src/agents/inventory_agent.py` | 纯 Python LangGraph 节点，查询库存、创建工单、缺货补货 |
-| Forecast Warning Agent | `src/agents/forecast_warning_agent.py` | 调用库存风险分析工具，输出预测预警和补货建议 |
-| AGV Agent | `src/agents/agv_agent.py` | 执行确定性批量调度、仿真、库存提交或释放 |
-| Agent Tools | `src/agent_tools/` | 知识检索、库存查询、工单创建、预测预警工具 |
+| Supervisor | `src/agents/supervisor.py` | 基于 LangGraph 和路由 LLM 动态选择 Agent；LLM 不可用时按 registry 顺序兜底 |
+| Agent Registry | `src/agents/registry.py` | 登记可用 Agent，Supervisor 按 registry 动态构图 |
+| Instruction Agent | `src/agents/instruction/agent.py` | 调用 vLLM/OpenAI 兼容接口抽取结构化指令；型号缺失时可调用知识库工具 |
+| Instruction Tools | `src/agents/instruction/tools.py` | RAG/GraphRAG 知识库查询工具 |
+| Inventory Agent | `src/agents/inventory/agent.py` | 纯 Python LangGraph 节点，查询库存、创建工单、缺货补货、合并多工单 |
+| Inventory Tools | `src/agents/inventory/tools.py` | 库存查询、工单创建、补货单创建工具 |
+| AGV Agent | `src/agents/agv/agent.py` | 执行确定性批量调度、仿真、库存提交或释放 |
 
 LLM 不参与路径规划和调度决策；AGV 分配、路径搜索、TSP 和仿真均由算法模块完成。
 
@@ -99,11 +100,18 @@ cp .env.example .env
 常用配置项：
 
 ```ini
-# vLLM / VLM
-VLM_MODEL_TYPE=qwen35
+# ASR / VLM / vLLM
+ASR_MODEL=large-v3-turbo
+VLM_MODEL_TYPE=qwen2
 VLM35_MODEL=Qwen/Qwen3.5-4B
 VLLM_SERVER_BASE_PORT=8000
 VLLM_OFFLINE=true
+
+# Supervisor / Router
+SUPERVISOR_MODEL=Qwen/Qwen3.5-4B
+SUPERVISOR_HOST=localhost
+SUPERVISOR_PORT=0
+SUPERVISOR_MAX_STEPS=6
 
 # Redis / Celery / 调度聚合
 REDIS_URL=redis://localhost:6379/0
@@ -125,6 +133,8 @@ OPTIMIZATION_ENABLED=true
 OPTIMIZATION_HORIZON_WEEKS=4
 OPTIMIZATION_POLICY=rule
 ```
+
+完整变量见 [.env.example](./.env.example)。
 
 ### 4. 最小可运行命令
 
@@ -159,7 +169,7 @@ curl -X POST http://localhost:8000/instructions \
 
 ```bash
 redis-server
-VLM_MODEL_TYPE=qwen35 python start_vlm_server.py
+python start_vlm_server.py
 python main_worker.py
 python main_api.py
 ```
@@ -179,8 +189,10 @@ python main_api.py
 | `python main_api.py --host 0.0.0.0 --port 8000` | 启动 FastAPI 服务 |
 | `python main_worker.py --concurrency 2 --queues urgent,default` | 启动 Celery Worker |
 | `python restock_inventory.py --qty 100` | 补充 SQLite 库存 |
-| `python test_api_batch.py --animation` | 批量提交 10 条 API 指令并下载调度动画 |
+| `python test_api_batch.py --animation` | 批量提交 API 指令并下载调度动画 |
 | `python scripts/test_inventory_optimization.py ...` | 库存预测预警与补货建议测试入口 |
+| `python scripts/export_langgraph_graphs.py` | 导出 LangGraph 图结构到 `outputs/langgraph/` |
+| `python scripts/convert_lora_to_vllm.py` | 将 LoRA 权重整理为 vLLM 可加载格式 |
 
 ## REST API
 
@@ -213,21 +225,23 @@ curl -X POST http://localhost:8000/instructions \
   -d '{"text":"紧急出库1台三相异步电动机，型号Y160M-4-11kW-ABB"}'
 ```
 
-响应示例：
+规则解析降级响应示例：
 
 ```json
 {
   "instruction_id": "a3f1c2d4-...",
   "status": "queued",
   "vlm_available": false,
-  "parsed": {
-    "part_name": "三相异步电动机",
-    "quantity": 1,
-    "model": "Y160M-4-11kW-ABB",
-    "action_required": null,
-    "is_urgent": false,
-    "description": null
-  }
+  "parsed": [
+    {
+      "part_name": "三相异步电动机",
+      "quantity": 1,
+      "model": "Y160M-4-11kW-ABB",
+      "action_required": null,
+      "is_urgent": false,
+      "description": null
+    }
+  ]
 }
 ```
 
@@ -303,7 +317,7 @@ rebuild           重建索引或图谱
 quit              退出
 ```
 
-Neo4j 安装、APOC 配置和图谱清理见 [NEO4J.md](NEO4J.md) 与 [docs/neo4j_setup.md](docs/neo4j_setup.md)。
+Neo4j 安装、APOC 配置和图谱清理见 [docs/neo4j_setup.md](./docs/neo4j_setup.md)。
 
 ## 库存预测与补货优化
 
@@ -316,6 +330,8 @@ Neo4j 安装、APOC 配置和图谱清理见 [NEO4J.md](NEO4J.md) 与 [docs/neo4
 | `data_adapter.py` | 基于历史需求的兜底预测 |
 | `schemas.py` | `OptimizationResult` 输出结构 |
 | `config.py` | 从 `.env` 加载运行时配置 |
+| `engine/predictor.py` | LSTM 预测器预留实现 |
+| `engine/optimizer.py` | DQN/规则补货优化器预留实现 |
 
 默认 `OPTIMIZATION_POLICY=rule`，可在无 vLLM、无 Redis、无 Neo4j 的环境下直接运行：
 
@@ -327,7 +343,7 @@ python scripts/test_inventory_optimization.py \
   --forecast 8,10,9,11
 ```
 
-输出为 JSON，包含 `risk_level`、`recommended_restock_qty`、`reorder_point` 和中文 `report`。Agent 侧工具封装在 `src/agent_tools/forecast_warning_tool.py`。
+输出为 JSON，包含 `risk_level`、`recommended_restock_qty`、`reorder_point` 和中文 `report`。Agent 侧可通过库存工具和预测预警模块组合使用。
 
 ## AGV 调度
 
@@ -424,17 +440,22 @@ python test_api_batch.py --animation
 ├── start_vlm_server.py         # vLLM 服务启动脚本
 ├── status_vlm_server.py        # vLLM 状态脚本
 ├── restock_inventory.py        # 库存补充工具
-├── scripts/
-│   └── test_inventory_optimization.py
-├── config/prompts.yaml         # Agent / VLM 提示词
+├── test_api_batch.py           # API 批量提交脚本
+├── config/
+│   └── prompts.yaml            # Agent / VLM 提示词
 ├── data/
 │   ├── inventory.db            # SQLite 库存数据库
+│   ├── graph_db/               # LlamaIndex 图谱/向量持久化
 │   └── knowledge_base/         # markdown 知识库
-├── docs/                       # 架构、API、Neo4j、学习笔记和项目文档
+├── docs/                       # 架构、Neo4j、学习笔记和项目文档
+├── scripts/
+│   ├── convert_lora_to_vllm.py
+│   ├── export_langgraph_graphs.py
+│   └── test_inventory_optimization.py
 ├── tests/                      # pytest 测试
+├── port_inventory_optimization/# 库存优化实验数据与代码
 └── src/
-    ├── agents/                 # Supervisor、多智能体和 AGV Agent
-    ├── agent_tools/            # Agent 工具：知识、库存、工单、预警
+    ├── agents/                 # Supervisor、Instruction、Inventory、AGV Agent
     ├── api/                    # FastAPI、Celery、队列、调度循环
     ├── asr/                    # Whisper ASR
     ├── common/                 # 配置、prompt、reranker、工具函数
@@ -449,8 +470,8 @@ python test_api_batch.py --animation
 
 | 问题 | 处理 |
 | --- | --- |
-| vLLM 端口占用 | 检查 `VLLM_SERVER_BASE_PORT`；Qwen3.5 路径默认使用 `base_port + 1` |
-| Agent 工具调用失败 | 确认 `VLM_MODEL_TYPE=qwen35`，并用 `start_vlm_server.py` 启动带 tool-call parser 的 vLLM |
+| vLLM 端口占用 | 检查 `VLLM_SERVER_BASE_PORT`；当前 instruction_agent 默认使用 `base_port + 1` |
+| Agent 工具调用失败 | 确认 `start_vlm_server.py` 已启动，且 vLLM OpenAI 兼容接口可访问 |
 | `main_interaction.py` 启动失败 | 先运行 `python status_vlm_server.py`，确认 vLLM 在线 |
 | API 一直不调度 | 检查队列是否达到阈值、是否超过窗口，或提交包含“紧急”的订单 |
 | Redis 不可用 | API 会降级到内存队列；完整异步 Agent 模式必须启动 Redis |
@@ -463,10 +484,11 @@ python test_api_batch.py --animation
 
 ## 相关文档
 
-- [docs/e2e_architecture.md](docs/e2e_architecture.md)
-- [docs/api_usage.md](docs/api_usage.md)
-- [docs/multiagent_architecture.md](docs/multiagent_architecture.md)
-- [docs/neo4j_setup.md](docs/neo4j_setup.md)
-- [docs/parser.md](docs/parser.md)
-- [docs/learn/01-项目全局地图.md](docs/learn/01-项目全局地图.md)
-- [src/warehouse/README.md](src/warehouse/README.md)
+- [docs/learn/01-项目全局地图.md](./docs/learn/01-项目全局地图.md)
+- [docs/learn/02-main_api入口.md](./docs/learn/02-main_api入口.md)
+- [docs/learn/06-Supervisor与多智能体流水线.md](./docs/learn/06-Supervisor与多智能体流水线.md)
+- [docs/learn/08-RAG与GraphRAG层.md](./docs/learn/08-RAG与GraphRAG层.md)
+- [docs/learn/09-WMS与WES仓储业务层.md](./docs/learn/09-WMS与WES仓储业务层.md)
+- [docs/learn/10-Fleet车队调度与路径规划层.md](./docs/learn/10-Fleet车队调度与路径规划层.md)
+- [docs/neo4j_setup.md](./docs/neo4j_setup.md)
+- [src/warehouse/README.md](./src/warehouse/README.md)
