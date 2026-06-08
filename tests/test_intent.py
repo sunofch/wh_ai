@@ -81,3 +81,14 @@ def test_general_reply_falls_back_to_fixed_text_on_error():
     with patch("src.agents.intent._get_reply_llm", return_value=llm):
         from src.agents.intent import general_reply, FALLBACK_REPLY
         assert general_reply(AgentState(user_input="你是谁")) == FALLBACK_REPLY
+
+
+def test_graph_has_intent_and_general_nodes():
+    import src.agents.supervisor as sup
+    sup._get_graph.cache_clear()
+    graph = sup._get_graph()
+    nodes = set(graph.get_graph().nodes.keys())
+    assert "intent" in nodes
+    assert "general_reply" in nodes
+    assert "instruction_agent" in nodes
+    assert "inventory_agent" in nodes
