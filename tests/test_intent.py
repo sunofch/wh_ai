@@ -11,3 +11,17 @@ def test_general_reply_schema_has_kind_and_text():
     assert isinstance(reply, DomainResult)
     assert reply.kind == "general_reply"
     assert reply.text == "你好，我可以帮你查库存"
+
+
+def test_agent_state_has_category_and_reply_defaults():
+    from src.agents.state import AgentState
+
+    state = AgentState()
+    assert state.category == ""
+    assert state.reply == ""
+
+    updated = state.with_updates(category="business", reply="hi")
+    assert updated.category == "business"
+    assert updated.reply == "hi"
+    # 不可变：原对象不被改动
+    assert state.category == ""

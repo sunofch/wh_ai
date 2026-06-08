@@ -37,6 +37,10 @@ class AgentState(BaseModel):
     inventory_report: InventoryReport | None = None
     intent: str = ""  # inventory_agent 写入：本次意图 query / order
 
+    # ── 意图识别层产出 ────────────────────────────────────
+    category: str = ""  # intent_node 写入：第1层意图 business / general
+    reply: str = ""     # general_reply_node 写入：general 意图的回复文本
+
     # ── 路由控制 ──────────────────────────────────────────
     next: str = ""  # Supervisor 写入：下一个 Agent 名 / FINISH
     history: list[str] = Field(default_factory=list)  # 已执行 Agent，防死循环
