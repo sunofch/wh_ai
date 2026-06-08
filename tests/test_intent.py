@@ -92,3 +92,26 @@ def test_graph_has_intent_and_general_nodes():
     assert "general_reply" in nodes
     assert "instruction_agent" in nodes
     assert "inventory_agent" in nodes
+
+
+def test_run_general_returns_general_reply():
+    import src.agents.supervisor as sup
+    from src.agents.schemas import AgentResult, GeneralReply
+
+    sup._get_graph.cache_clear()
+
+    reply_llm = MagicMock()
+    reply_resp = MagicMock()
+    reply_resp.content = "你好！我可以帮你查库存或处理出入库。"
+    reply_llm.invoke.return_value = reply_resp
+
+    with patch("src.agents.intent._get_intent_llm", return_value=_mock_intent_llm("general")), \
+         patch("src.agents.intent._get_reply_llm", return_value=reply_llm):
+        result = sup.run(text="今天天气真好")
+
+    assert isinstance(result, AgentResult)
+    assert result.intent == "general"
+    assert isinstance(result.result, GeneralReply)
+    assert result.result.text == "你好！我可以帮你查库存或处理出入库。"
+
+    sup._get_graph.cache_clear()

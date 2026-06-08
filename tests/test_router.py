@@ -1,16 +1,15 @@
-"""LLM 路由 Supervisor 测试。
+"""Supervisor 两层意图识别 + BaseAgent 测试。
 
 覆盖：
-1. 确定性兜底路由 _fallback_next（无 LLM）
-2. LLM 决策 _decide_next（mock LLM / 非法输出 / 异常退化）
-3. max_steps 兜底防死循环
-4. BaseAgent 包装 InstructionAgent / InventoryAgent 的 run(state)
-5. end-to-end supervisor.run() 返回合并后的单个 WorkOrder，且不触发 AGV
+1. BaseAgent 包装 InstructionAgent / InventoryAgent 的 run(state)
+2. 第2层意图分类规则 _classify_intent（business 链内细分 query/order）
+3. inventory agent 查询分支
+4. end-to-end supervisor.run()：business 链返回 WorkOrder / InventoryReport，不触发 AGV
 """
 from unittest.mock import MagicMock, patch
 
 from src.agents.schemas import ParsedInstruction
-from src.agents.state import FINISH, AgentState
+from src.agents.state import AgentState
 from src.warehouse.models import InventoryItem, OrderItem, OrderPriority, TaskType, WorkOrder
 
 
@@ -22,95 +21,7 @@ def _stock_item(part_name="深沟球轴承", model="6208-2RS-C3-SKF-Mech1", avai
     )
 
 
-def _registry():
-    """构造与生产一致的双 Agent registry（顺序：instruction → inventory）。"""
-    from src.agents.registry import build_registry
-    return build_registry()
-
-
-# ── 1. 确定性兜底路由 ─────────────────────────────────────────────────────────
-
-def test_fallback_picks_first_unexecuted_agent():
-    from src.agents.supervisor import _fallback_next
-    reg = _registry()
-
-    # 未执行任何 Agent → 选登记顺序第一个（instruction）
-    assert _fallback_next(AgentState(), reg) == "instruction_agent"
-
-
-def test_fallback_advances_to_next_after_first_done():
-    from src.agents.supervisor import _fallback_next
-    reg = _registry()
-
-    state = AgentState(history=["instruction_agent"])
-    assert _fallback_next(state, reg) == "inventory_agent"
-
-
-def test_fallback_finishes_when_all_executed():
-    from src.agents.supervisor import _fallback_next
-    reg = _registry()
-
-    state = AgentState(history=["instruction_agent", "inventory_agent"])
-    assert _fallback_next(state, reg) == FINISH
-
-
-# ── 2. LLM 决策 ───────────────────────────────────────────────────────────────
-
-def test_decide_next_uses_llm_decision_when_valid():
-    from src.agents.supervisor import RouteDecision, _decide_next
-    reg = _registry()
-
-    mock_structured = MagicMock()
-    mock_structured.invoke.return_value = RouteDecision(next="inventory_agent", reason="已有指令")
-    mock_llm = MagicMock()
-    mock_llm.with_structured_output.return_value = mock_structured
-
-    with patch("src.agents.supervisor._get_router_llm", return_value=mock_llm):
-        result = _decide_next(AgentState(instructions=[ParsedInstruction(part_name="泵")]), reg)
-
-    assert result == "inventory_agent"
-
-
-def test_decide_next_falls_back_on_invalid_llm_output():
-    from src.agents.supervisor import RouteDecision, _decide_next
-    reg = _registry()
-
-    mock_structured = MagicMock()
-    mock_structured.invoke.return_value = RouteDecision(next="不存在的agent")
-    mock_llm = MagicMock()
-    mock_llm.with_structured_output.return_value = mock_structured
-
-    with patch("src.agents.supervisor._get_router_llm", return_value=mock_llm):
-        # 非法 next → 退化为兜底（空 history → instruction）
-        result = _decide_next(AgentState(), reg)
-
-    assert result == "instruction_agent"
-
-
-def test_decide_next_falls_back_on_llm_exception():
-    from src.agents.supervisor import _decide_next
-    reg = _registry()
-
-    with patch("src.agents.supervisor._get_router_llm", side_effect=RuntimeError("no server")):
-        result = _decide_next(AgentState(), reg)
-
-    assert result == "instruction_agent"
-
-
-# ── 3. max_steps 兜底 ─────────────────────────────────────────────────────────
-
-def test_router_node_finishes_when_max_steps_reached():
-    from src.agents.supervisor import _make_router_node
-    reg = _registry()
-
-    node = _make_router_node(reg, max_steps=2)
-    state = AgentState(history=["instruction_agent", "inventory_agent"])
-
-    # 已达步数上限，直接 FINISH，不再询问 LLM
-    assert node(state) == {"next": FINISH}
-
-
-# ── 4. BaseAgent 包装 ─────────────────────────────────────────────────────────
+# ── 1. BaseAgent 包装 ─────────────────────────────────────────────────────────
 
 def test_instruction_agent_run_writes_typed_instructions():
     from src.agents.instruction.agent import InstructionAgent
@@ -157,11 +68,17 @@ def test_inventory_agent_run_fans_out_and_merges():
     assert len(state.work_order.items) == 2
 
 
-# ── 5. end-to-end supervisor.run() ────────────────────────────────────────────
+# ── 2. end-to-end supervisor.run()（business 链）───────────────────────────────
 
-def _patch_router_to_fallback():
-    """让路由 LLM 不可用，强制走确定性兜底（instruction → inventory → FINISH）。"""
-    return patch("src.agents.supervisor._get_router_llm", side_effect=RuntimeError("no server"))
+def _patch_intent_business():
+    """强制第1层意图为 business，走业务链 instruction → inventory。"""
+    from src.agents.intent import IntentDecision
+
+    structured = MagicMock()
+    structured.invoke.return_value = IntentDecision(category="business")
+    llm = MagicMock()
+    llm.with_structured_output.return_value = structured
+    return patch("src.agents.intent._get_intent_llm", return_value=llm)
 
 
 def test_run_returns_merged_work_order():
@@ -178,7 +95,7 @@ def test_run_returns_merged_work_order():
     mock_inv_pipeline = MagicMock()
     mock_inv_pipeline.run.return_value = expected_order
 
-    with _patch_router_to_fallback(), \
+    with _patch_intent_business(), \
          patch("src.agents.instruction.agent.get_instruction_agent", return_value=mock_instr_graph), \
          patch("src.agents.inventory.agent.get_inventory_agent", return_value=mock_inv_pipeline):
         result = run(text="需要3个深沟球轴承出库")
@@ -201,7 +118,7 @@ def test_run_does_not_trigger_agv():
         order_id=1, source="vlm", priority=OrderPriority.NORMAL
     )
 
-    with _patch_router_to_fallback(), \
+    with _patch_intent_business(), \
          patch("src.agents.instruction.agent.get_instruction_agent", return_value=mock_instr_graph), \
          patch("src.agents.inventory.agent.get_inventory_agent", return_value=mock_inv_pipeline), \
          patch("src.agents.agv.agent.run") as mock_agv:
@@ -210,7 +127,7 @@ def test_run_does_not_trigger_agv():
     mock_agv.assert_not_called()
 
 
-# ── 6. 意图分类（规则）────────────────────────────────────────────────────────
+# ── 3. 第2层意图分类（规则）───────────────────────────────────────────────────
 
 def test_classify_intent_order_when_action_present():
     from src.agents.inventory.agent import _classify_intent
@@ -229,7 +146,7 @@ def test_classify_intent_empty_defaults_to_order():
     assert _classify_intent([]) == "order"
 
 
-# ── 7. inventory agent 查询分支 ───────────────────────────────────────────────
+# ── 4. inventory agent 查询分支 ───────────────────────────────────────────────
 
 def test_inventory_agent_run_query_branch_builds_report():
     from src.agents.inventory.agent import InventoryAgent
@@ -247,7 +164,7 @@ def test_inventory_agent_run_query_branch_builds_report():
     assert state.inventory_report.items[0].available == 81
 
 
-# ── 8. end-to-end 查询返回 AgentResult(InventoryReport)────────────────────────
+# ── 5. end-to-end 查询返回 AgentResult(InventoryReport)────────────────────────
 
 def test_run_query_returns_inventory_report():
     from src.agents.supervisor import run
@@ -257,7 +174,7 @@ def test_run_query_returns_inventory_report():
         "messages": [MagicMock(content='[{"part_name": "深沟球轴承"}]')]  # 无 action_required → 查询
     }
 
-    with _patch_router_to_fallback(), \
+    with _patch_intent_business(), \
          patch("src.agents.instruction.agent.get_instruction_agent", return_value=mock_instr_graph), \
          patch("src.agents.inventory.agent.lookup_stock_item", return_value=_stock_item()):
         result = run(text="深沟球轴承还有多少")
