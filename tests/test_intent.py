@@ -62,3 +62,22 @@ def test_classify_intent_image_only_is_business():
     # 纯图片输入默认 business，不调 LLM
     from src.agents.intent import classify_intent
     assert classify_intent(AgentState(image="/tmp/order.jpg")) == "business"
+
+
+def test_general_reply_returns_llm_text():
+    resp = MagicMock()
+    resp.content = "你好！我可以帮你查库存或处理出入库。"
+    llm = MagicMock()
+    llm.invoke.return_value = resp
+    with patch("src.agents.intent._get_reply_llm", return_value=llm):
+        from src.agents.intent import general_reply
+        text = general_reply(AgentState(user_input="你是谁"))
+        assert text == "你好！我可以帮你查库存或处理出入库。"
+
+
+def test_general_reply_falls_back_to_fixed_text_on_error():
+    llm = MagicMock()
+    llm.invoke.side_effect = RuntimeError("llm down")
+    with patch("src.agents.intent._get_reply_llm", return_value=llm):
+        from src.agents.intent import general_reply, FALLBACK_REPLY
+        assert general_reply(AgentState(user_input="你是谁")) == FALLBACK_REPLY

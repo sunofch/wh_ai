@@ -76,3 +76,33 @@ def classify_intent(state: AgentState) -> str:
     except Exception:
         pass
     return BUSINESS
+
+
+@lru_cache(maxsize=1)
+def _get_reply_llm() -> ChatOpenAI:
+    """general 回复用 LLM，温度略高以生成自然语言。"""
+    cfg = config.supervisor
+    host, port = _endpoint()
+    return ChatOpenAI(
+        base_url=f"http://{host}:{port}/v1",
+        api_key="EMPTY",
+        model=cfg.model,
+        temperature=0.7,
+        max_tokens=cfg.max_tokens,
+        extra_body={"chat_template_kwargs": {"enable_thinking": False}},
+    )
+
+
+def general_reply(state: AgentState) -> str:
+    """为 general 意图生成一句友好回复；LLM 不可用时退固定文案。"""
+    try:
+        system = SystemMessage(content=(
+            "你是港口仓储备件管理系统的助手。用户的输入不是库存业务操作，"
+            "请用一句友好的中文回应，并引导用户说出库存查询或出入库需求。"
+        ))
+        human = HumanMessage(content=state.user_input or "")
+        resp = _get_reply_llm().invoke([system, human])
+        text = resp.content if isinstance(resp.content, str) else str(resp.content)
+        return text.strip() or FALLBACK_REPLY
+    except Exception:
+        return FALLBACK_REPLY
