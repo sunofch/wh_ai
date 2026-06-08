@@ -42,6 +42,12 @@ class WorkOrderResult(DomainResult):
     order: WorkOrder
 
 
+class GeneralReply(DomainResult):
+    """通用/闲聊回复结果（general 意图产出，不动库存、不建工单）。"""
+    kind: Literal["general_reply"] = "general_reply"
+    text: str = ""
+
+
 class AgentResult(BaseModel):
     """supervisor.run() 的统一结果信封。
 
