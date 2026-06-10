@@ -267,10 +267,11 @@ def interactive_mode() -> None:
 
 def print_result(result: AgentResult) -> None:
     print("─" * 40)
+    payload = result.result
 
     # 查询意图：打印库存报告
-    if result.result.kind == "inventory_report":
-        report = result.result
+    if payload.kind == "inventory_report":
+        report = payload
         print("【库存查询结果】")
         if not report.items:
             print("  未查询到匹配备件")
@@ -280,16 +281,28 @@ def print_result(result: AgentResult) -> None:
         print("─" * 40)
         return
 
+    # 通用/闲聊意图：打印文本回复
+    if payload.kind == "general_reply":
+        print("【回复】")
+        print(f"  {payload.text or '-'}")
+        print("─" * 40)
+        return
+
     # 出入库意图：打印工单摘要
-    order = result.result.order
-    print("【WorkOrder 摘要】")
-    for item in order.items:
-        print(f"  备件: {item.part_name or '-'}  型号: {item.model or '-'}"
-              f"  数量: {item.quantity}  类型: {item.task_type.value}")
-        if item.resolved_pick:
-            print(f"  取货位: {item.resolved_pick}  → 送货位: {item.resolved_dest}")
-    if order.metadata.get("restock_order_id"):
-        print(f"  ⚠ 补货单: {order.metadata['restock_order_id']}")
+    if payload.kind == "work_order":
+        order = payload.order
+        print("【WorkOrder 摘要】")
+        for item in order.items:
+            print(f"  备件: {item.part_name or '-'}  型号: {item.model or '-'}"
+                  f"  数量: {item.quantity}  类型: {item.task_type.value}")
+            if item.resolved_pick:
+                print(f"  取货位: {item.resolved_pick}  → 送货位: {item.resolved_dest}")
+        if order.metadata.get("restock_order_id"):
+            print(f"  ⚠ 补货单: {order.metadata['restock_order_id']}")
+        print("─" * 40)
+        return
+
+    print(f"【未知结果类型】{payload.kind}")
     print("─" * 40)
 
 
