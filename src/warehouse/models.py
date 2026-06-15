@@ -54,6 +54,9 @@ class InventoryItem(BaseModel):
     location: str               # 储位名, 如 "Mech1_R1_B1"
     zone: str                   # 区域名, 如 "Mech1"
     max_capacity: int = 4
+    inbound_date: str = ""           # 最近入库日期 ISO，全生命周期追踪起点
+    expected_life_weeks: int = 0     # 预期使用寿命（周），0 = 不参与寿命预警
+    scrap_date: str = ""             # 最近报废日期 ISO
 
 
 class OrderItem(BaseModel):

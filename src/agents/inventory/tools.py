@@ -6,6 +6,7 @@
   - create_work_order     创建出入库工单
   - create_restock_order  库存不足时创建补货入库订单
   - create_restock        代码内部直接调用的补货逻辑（非 @tool）
+  - build_warning_report  库存风险 + 寿命到期预警报告（预警意图用）
 """
 import json
 import uuid
@@ -13,6 +14,8 @@ from functools import lru_cache
 
 from langchain_core.tools import tool
 
+from src.agents.schemas import ParsedInstruction, WarningReport
+from src.optimization.pipeline import analyze_inventory_optimization
 from src.parser.parser import PortInstruction
 from src.warehouse.maps.base import MapRegistry
 from src.warehouse.models import InventoryItem
@@ -33,6 +36,58 @@ def lookup_stock_item(model: str | None, part_name: str | None) -> InventoryItem
     if item is None and part_name:
         item = db.query_by_name(part_name)
     return item
+
+
+def _analyze_item_risk(item: InventoryItem, db: StockManager) -> dict:
+    """对单个库存条目做需求预测 + 风险分级，需求历史从出库履历派生。"""
+    result = analyze_inventory_optimization(
+        part_name=item.part_name,
+        model=item.model,
+        current_stock=item.available,
+        demand_history=db.weekly_demand_history(item.model),
+    )
+    return result.to_dict()
+
+
+def build_warning_report(
+    instructions: list[ParsedInstruction],
+    user_input: str = "",
+) -> WarningReport:
+    """构建库存预警报告（预警意图）。
+
+    - 指令点名了具体备件 → 仅分析这些备件（无论风险高低都纳入报告）；
+    - 未点名（全局提问）→ 扫描全库，只保留风险等级非 normal 的条目。
+    同时附带寿命到期/临期清单。
+    """
+    db = _get_stock_manager()
+
+    targets: dict[str, InventoryItem] = {}
+    for inst in instructions:
+        item = lookup_stock_item(inst.model, inst.part_name)
+        if item is not None:
+            targets[item.model] = item
+
+    if targets:
+        stock_warnings = [_analyze_item_risk(it, db) for it in targets.values()]
+    else:
+        stock_warnings = [
+            risk
+            for it in db.list_items()
+            if (risk := _analyze_item_risk(it, db))["risk_level"] != "normal"
+        ]
+
+    life_warnings = db.list_life_warnings()
+    risky = sum(1 for w in stock_warnings if w["risk_level"] != "normal")
+    if targets:
+        head = f"共分析{len(stock_warnings)}条备件库存，{risky}条存在库存风险"
+    else:
+        head = f"全库扫描发现{len(stock_warnings)}条风险备件"
+    summary = f"{head}，{len(life_warnings)}条寿命到期/临期。"
+    return WarningReport(
+        stock_warnings=stock_warnings,
+        life_warnings=life_warnings,
+        summary=summary,
+    )
 
 
 @tool

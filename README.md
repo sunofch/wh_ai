@@ -23,12 +23,17 @@
 ## 核心能力
 
 - 多模态输入：文本、图片 base64、本地图片、音频 base64、本地音频和命令行录音，音频由 Whisper 转写。
-- 多智能体解析：`supervisor -> instruction_agent -> inventory_agent`，路由由 LangGraph Supervisor 编排，指令解析使用 OpenAI 兼容 vLLM，库存建单走确定性 Python 图。
+- 多智能体解析：`supervisor -> instruction_agent -> inventory_agent`，两层意图识别（第1层 LLM business/general，第2层规则 出入库/查询/预警），指令解析使用 OpenAI 兼容 vLLM，库存建单走确定性 Python 图。
 - 知识增强：传统 RAG 使用 BGE-M3、BM25、RRF 和 reranker；GraphRAG 使用 LlamaIndex PropertyGraphIndex 与 Neo4j。
-- 库存业务：SQLite 库存、库存查询、出入库工单、库存不足补货单、库存预留/确认/释放。
-- 预测预警：规则策略的需求预测、风险分级和补货建议，可选 LSTM/DQN 配置预留。
-- AGV 调度：批量任务聚类、A* 路径缓存、OR-Tools TSP、Regret-2 分配、充电策略、仿真指标和 GIF 动画。
-- API 服务：FastAPI + Redis/Celery；vLLM 在线时异步跑 Agent，离线时用规则解析降级并仍可进入调度队列。
+- 库存业务：SQLite 库存、库存查询、出入库工单、库存不足补货单、库存预留/确认/释放/报废，全生命周期字段（入库日期/预期寿命/报废日期）与旧库自动迁移。
+- 预测预警：规则策略的需求预测、风险分级和补货建议；寿命到期/临期自动预警；动态因果图（SCM）区分季节/趋势/突发需求；小样本 Encoder-Decoder 寿命预测；可选 LSTM/DQN（DQN 支持在线增量学习）。
+- 跨模态优先级：时序+文本+视觉三模态风险信号融合打分，自动提升紧急工单优先级。
+- 可信溯源：哈希链账本与业务同事务原子上链，默克尔证明 + 联盟链适配层，`GET /trace/{model}` 溯源查询 < 2 秒。
+- AGV 调度：批量任务聚类、A* 路径缓存、OR-Tools TSP、Regret-2 分配、竞价博弈定路权、充电策略、仿真指标和 GIF 动画。
+- API 服务：FastAPI + Redis/Celery；vLLM 在线时异步跑 Agent，离线时用规则解析降级并仍可进入调度队列；可配置限流与多 Worker。
+- MCP Server：库存/预警/溯源/报废能力以标准 MCP 工具暴露（stdio），任意 MCP Host 可接入。
+- 联邦微调骨架：多部门 LoRA 本地训练 + FedAvg 聚合 + 个性化 adapter 路由（数据不出部门）。
+- IoT 感知层：MQTT 时序采集 + CSV 回放兜底，时序缓冲直接对接因果/预测模块。
 
 ## 系统架构
 
@@ -53,7 +58,7 @@
 | Agent Registry | `src/agents/registry.py` | 登记可用 Agent，Supervisor 按 registry 动态构图 |
 | Instruction Agent | `src/agents/instruction/agent.py` | 调用 vLLM/OpenAI 兼容接口抽取结构化指令；型号缺失时可调用知识库工具 |
 | Instruction Tools | `src/agents/instruction/tools.py` | RAG/GraphRAG 知识库查询工具 |
-| Inventory Agent | `src/agents/inventory/agent.py` | 纯 Python LangGraph 节点，查询库存、创建工单、缺货补货、合并多工单 |
+| Inventory Agent | `src/agents/inventory/agent.py` | 纯 Python LangGraph 节点，第2层意图三路由：查询库存明细 / 创建工单（缺货补货、跨模态优先级融合）/ 预警分析报告 |
 | Inventory Tools | `src/agents/inventory/tools.py` | 库存查询、工单创建、补货单创建工具 |
 | AGV Agent | `src/agents/agv/agent.py` | 执行确定性批量调度、仿真、库存提交或释放 |
 
@@ -193,6 +198,9 @@ python main_api.py
 | `python scripts/test_inventory_optimization.py ...` | 库存预测预警与补货建议测试入口 |
 | `python scripts/export_langgraph_graphs.py` | 导出 LangGraph 图结构到 `outputs/langgraph/` |
 | `python scripts/convert_lora_to_vllm.py` | 将 LoRA 权重整理为 vLLM 可加载格式 |
+| `python main_mcp.py` | 启动 MCP Server（stdio），暴露库存/预警/溯源/报废标准工具 |
+| `python scripts/benchmark_tps.py [--api URL]` | 库存层 / API 层 TPS 压测 |
+| `python main_api.py --workers 4` | 多 Worker 进程模式启动 API（工厂模式） |
 
 ## REST API
 
@@ -214,6 +222,7 @@ python main_api.py
 | `GET` | `/status` | 查询队列、最近批次和调度状态 |
 | `GET` | `/result/{run_id}` | 查询批次调度结果 |
 | `GET` | `/result/{run_id}/animation` | 按需生成并下载 GIF 动画 |
+| `GET` | `/trace/{model}` | 备件全生命周期可信溯源（上链记录 + 哈希链完整性校验） |
 
 ### 请求示例
 
@@ -408,6 +417,12 @@ WH_ORDER_NUM=80 WH_RANDOM_SEED=42 python main_simulation.py
 pytest
 ```
 
+覆盖率（核心逻辑要求 ≥ 80%，GPU/外部服务集成模块见 `.coveragerc` omit 说明）：
+
+```bash
+pytest --cov=src --cov-report=term-missing
+```
+
 只跑不依赖 vLLM 的冒烟链路：
 
 ```bash
@@ -456,14 +471,18 @@ python test_api_batch.py --animation
 ├── port_inventory_optimization/# 库存优化实验数据与代码
 └── src/
     ├── agents/                 # Supervisor、Instruction、Inventory、AGV Agent
-    ├── api/                    # FastAPI、Celery、队列、调度循环
+    ├── api/                    # FastAPI、Celery、队列、调度循环、限流
     ├── asr/                    # Whisper ASR
     ├── common/                 # 配置、prompt、reranker、工具函数
-    ├── optimization/           # 库存预测、风险预警和补货建议
+    ├── federated/              # 联邦 LoRA 微调骨架（FedAvg + 个性化路由）
+    ├── iot/                    # IoT 感知层（MQTT 采集、时序缓冲、CSV 回放）
+    ├── mcp_server/             # MCP Server（库存/预警/溯源/报废标准工具）
+    ├── optimization/           # 库存预测、风险/寿命预警、因果 SCM、跨模态融合、小样本模型
     ├── parser/                 # PortInstruction 与规则解析
     ├── rag/                    # Traditional RAG 与 GraphRAG
+    ├── traceability/           # 哈希链账本、默克尔证明、联盟链适配层
     ├── vlm/                    # vLLM 服务管理
-    └── warehouse/              # WMS/WES/Fleet/Simulation 调度系统
+    └── warehouse/              # WMS/WES/Fleet/Simulation 调度系统（含竞价博弈）
 ```
 
 ## 故障排查

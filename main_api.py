@@ -71,7 +71,17 @@ if __name__ == "__main__":
     arg_parser = argparse.ArgumentParser()
     arg_parser.add_argument("--host", default="0.0.0.0")
     arg_parser.add_argument("--port", type=int, default=8000)
+    arg_parser.add_argument(
+        "--workers", type=int, default=1,
+        help="uvicorn worker 进程数；>1 时走工厂模式，各进程独立构建 app",
+    )
     args = arg_parser.parse_args()
 
-    app = build_app()
-    uvicorn.run(app, host=args.host, port=args.port)
+    if args.workers > 1:
+        # 多 worker 必须用 import string + 工厂模式（每个子进程各自 build_app）
+        uvicorn.run(
+            "main_api:build_app", factory=True,
+            host=args.host, port=args.port, workers=args.workers,
+        )
+    else:
+        uvicorn.run(build_app(), host=args.host, port=args.port)

@@ -8,6 +8,7 @@
 """
 from __future__ import annotations
 
+import logging
 from functools import lru_cache
 
 from langchain_core.messages import HumanMessage, SystemMessage
@@ -16,6 +17,8 @@ from pydantic import BaseModel
 
 from src.agents.state import AgentState
 from src.common.config import config
+
+logger = logging.getLogger(__name__)
 
 BUSINESS = "business"
 GENERAL = "general"
@@ -55,7 +58,7 @@ def _get_intent_llm() -> ChatOpenAI:
 def _build_messages(state: AgentState) -> list:
     system = SystemMessage(content=(
         "你是港口仓储系统的意图分类器。判断用户输入属于哪一类，只能二选一：\n"
-        f"- {BUSINESS}：与备件库存查询、出入库（出库/入库/调库）等仓储业务相关\n"
+        f"- {BUSINESS}：与备件库存查询、出入库（出库/入库/调库）、库存预警/风险分析等仓储业务相关\n"
         f"- {GENERAL}：闲聊、与仓储业务无关、或无法识别的输入\n"
         "只返回 category 与简短 reason。"
     ))
@@ -73,8 +76,9 @@ def classify_intent(state: AgentState) -> str:
         decision = llm.invoke(_build_messages(state))
         if decision is not None and decision.category in (BUSINESS, GENERAL):
             return decision.category
+        logger.warning("意图分类 LLM 返回非法类别: %r，兜底为 business", decision)
     except Exception:
-        pass
+        logger.warning("意图分类 LLM 调用失败，兜底为 business", exc_info=True)
     return BUSINESS
 
 
@@ -105,4 +109,5 @@ def general_reply(state: AgentState) -> str:
         text = resp.content if isinstance(resp.content, str) else str(resp.content)
         return text.strip() or FALLBACK_REPLY
     except Exception:
+        logger.warning("general 回复 LLM 调用失败，使用固定兜底文案", exc_info=True)
         return FALLBACK_REPLY

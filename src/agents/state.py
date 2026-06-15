@@ -10,7 +10,7 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
-from src.agents.schemas import InventoryReport, ParsedInstruction
+from src.agents.schemas import InventoryReport, ParsedInstruction, WarningReport
 from src.warehouse.models import WorkOrder
 
 # 路由终止标记：Supervisor 写入 next 表示无需再调用任何 Agent。
@@ -35,7 +35,10 @@ class AgentState(BaseModel):
 
     # ── inventory_agent 产出（查询意图）────────────────────
     inventory_report: InventoryReport | None = None
-    intent: str = ""  # inventory_agent 写入：本次意图 query / order
+    intent: str = ""  # inventory_agent 写入：本次意图 query / order / warning
+
+    # ── inventory_agent 产出（预警意图）────────────────────
+    warning_report: WarningReport | None = None
 
     # ── 意图识别层产出 ────────────────────────────────────
     category: str = ""  # intent_node 写入：第1层意图 business / general

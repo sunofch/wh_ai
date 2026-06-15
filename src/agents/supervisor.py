@@ -78,31 +78,24 @@ def _get_graph():
 
 # ── 主入口（签名保持兼容）────────────────────────────────────────────────────
 
-def run(
-    text: str | None = None,
-    image: str | None = None,
-    verbose: bool = False,
-) -> AgentResult:
-    """Supervisor 主入口。返回统一结果信封 AgentResult，不涉及 AGV 调度。
+def _assemble_result(final) -> AgentResult:
+    """把图终态组装为统一结果信封。
 
     - general 意图  → AgentResult(intent="general", result=GeneralReply)
     - 查询意图      → AgentResult(intent="query",   result=InventoryReport)
+    - 预警意图      → AgentResult(intent="warning", result=WarningReport)
     - 出入库意图    → AgentResult(intent="order",   result=WorkOrderResult)
     """
-    initial = AgentState(user_input=text or "", image=image)
-    final = _get_graph().invoke(initial)
-
     if isinstance(final, AgentState):
         category, intent = final.category, final.intent
         report, work_order, reply = final.inventory_report, final.work_order, final.reply
+        warning_report = final.warning_report
     else:  # LangGraph 返回 channel 值映射
         category, intent = final.get("category", ""), final.get("intent", "")
         report = final.get("inventory_report")
         work_order = final.get("work_order")
         reply = final.get("reply", "")
-
-    if verbose:
-        print(f"[supervisor] category={category} intent={intent}")
+        warning_report = final.get("warning_report")
 
     if category == GENERAL:
         return AgentResult(
@@ -113,7 +106,27 @@ def run(
     if intent == "query" and report is not None:
         return AgentResult(intent="query", result=report)
 
+    if intent == "warning" and warning_report is not None:
+        return AgentResult(intent="warning", result=warning_report)
+
     order = work_order or WorkOrder(
         order_id=0, source="vlm", priority=OrderPriority.NORMAL
     )
     return AgentResult(intent=intent or "order", result=WorkOrderResult(order=order))
+
+
+def run(
+    text: str | None = None,
+    image: str | None = None,
+    verbose: bool = False,
+) -> AgentResult:
+    """Supervisor 主入口。返回统一结果信封 AgentResult，不涉及 AGV 调度。"""
+    initial = AgentState(user_input=text or "", image=image)
+    final = _get_graph().invoke(initial)
+
+    if verbose:
+        category = final.category if isinstance(final, AgentState) else final.get("category", "")
+        intent = final.intent if isinstance(final, AgentState) else final.get("intent", "")
+        print(f"[supervisor] category={category} intent={intent}")
+
+    return _assemble_result(final)

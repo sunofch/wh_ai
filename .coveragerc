@@ -1,0 +1,22 @@
+# 覆盖率统计配置
+#
+# omit 列表为依赖外部服务/GPU 的集成模块（vLLM、Neo4j、Whisper、
+# matplotlib 渲染、Celery broker），其正确性由在线环境的 e2e 验证
+# （test_api_batch.py、main_interaction.py），不计入单测覆盖率门槛。
+# 核心业务逻辑（agents/optimization/warehouse/traceability/federated/iot/api）
+# 要求 ≥ 80%。
+[run]
+omit =
+    src/rag/*
+    src/vlm/*
+    src/asr/*
+    src/common/reranker.py
+    src/warehouse/visualize_*.py
+    src/api/celery_app.py
+    src/api/scheduler.py
+
+[report]
+exclude_lines =
+    pragma: no cover
+    if TYPE_CHECKING:
+    if __name__ == .__main__.:

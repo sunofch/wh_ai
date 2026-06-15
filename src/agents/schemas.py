@@ -42,6 +42,18 @@ class WorkOrderResult(DomainResult):
     order: WorkOrder
 
 
+class WarningReport(DomainResult):
+    """库存预警分析结果（预警意图产出，不动库存、不建工单）。
+
+    stock_warnings: 每个备件的需求预测 + 风险等级 + 补货建议（OptimizationResult.to_dict()）
+    life_warnings:  寿命到期/临期备件清单（StockManager.list_life_warnings()）
+    """
+    kind: Literal["warning_report"] = "warning_report"
+    stock_warnings: list[dict] = Field(default_factory=list)
+    life_warnings: list[dict] = Field(default_factory=list)
+    summary: str = ""
+
+
 class GeneralReply(DomainResult):
     """通用/闲聊回复结果（general 意图产出，不动库存、不建工单）。"""
     kind: Literal["general_reply"] = "general_reply"

@@ -129,7 +129,7 @@ class VLLMServerManager:
 
         try:
             output, _ = process.communicate(timeout=1)
-        except Exception:
+        except subprocess.TimeoutExpired:
             output = process.stdout.read() if process.stdout else ""
 
         self.stop_server(model_type)
@@ -182,7 +182,7 @@ class VLLMServerManager:
                 url = self.get_server_url(model_type)
                 response = requests.get(f"{url}/health", timeout=2)
                 return response.status_code == 200
-            except Exception:
+            except requests.RequestException:
                 if attempt < max_retries - 1:
                     time.sleep(0.5)
         return False

@@ -2,6 +2,7 @@
 结构化解析器：定义数据模型和校验逻辑
 """
 import json
+import logging
 import re
 from typing import Any, Dict, Optional
 
@@ -9,6 +10,8 @@ from langchain_core.output_parsers import PydanticOutputParser
 from pydantic import BaseModel, Field
 
 from src.common.config import config
+
+logger = logging.getLogger(__name__)
 
 # ── 规则解析词典（VLM降级时使用） ──────────────────────────────
 
@@ -123,7 +126,7 @@ class PortInstructionParser:
                 # 兼容处理：如果 vlm_result 本身就是 dict，直接解包
                 return PortInstruction(**vlm_result)
             except Exception as e:
-                print(f"VLM输出格式校验失败: {e}，尝试规则解析")
+                logger.warning("VLM输出格式校验失败: %s，尝试规则解析", e)
         
         # 2. 失败或 VLM 未输出 JSON，使用规则解析兜底
         fallback_text = vlm_result.get("raw_response", "") + " " + raw_text

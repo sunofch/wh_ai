@@ -27,6 +27,28 @@ logger = logging.getLogger(__name__)
 
 REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379/0")
 
+# 每客户端 IP 每分钟请求上限；0 = 关闭限流（默认，开发态）
+RATE_LIMIT_PER_MINUTE = int(os.getenv("RATE_LIMIT_PER_MINUTE", "0"))
+_RATE_WINDOW_SECONDS = 60.0
+
+
+class _SlidingWindowLimiter:
+    """进程内滑动窗口限流（多 Worker 部署时各进程独立计数）。"""
+
+    def __init__(self, limit: int, window: float = _RATE_WINDOW_SECONDS):
+        self.limit = limit
+        self.window = window
+        self._hits: dict[str, list[float]] = {}
+
+    def allow(self, key: str, now: float) -> bool:
+        hits = [t for t in self._hits.get(key, []) if now - t < self.window]
+        if len(hits) >= self.limit:
+            self._hits[key] = hits
+            return False
+        hits.append(now)
+        self._hits[key] = hits
+        return True
+
 
 def _transcribe_audio_base64(audio_base64: str) -> str:
     try:
@@ -104,6 +126,25 @@ def create_app(
             await redis_queue.close()
 
     app = FastAPI(title="AGV Warehouse API", lifespan=lifespan)
+
+    if RATE_LIMIT_PER_MINUTE > 0:
+        import time as _time
+
+        limiter = _SlidingWindowLimiter(RATE_LIMIT_PER_MINUTE)
+
+        @app.middleware("http")
+        async def rate_limit(request: Request, call_next):
+            client_ip = request.client.host if request.client else "unknown"
+            if not limiter.allow(client_ip, _time.monotonic()):
+                from fastapi.responses import JSONResponse
+
+                return JSONResponse(
+                    status_code=429,
+                    content={"error": "rate_limited",
+                             "detail": f"超过 {RATE_LIMIT_PER_MINUTE} 次/分钟限制"},
+                )
+            return await call_next(request)
+
     _register_routes(app)
     return app
 
@@ -255,6 +296,19 @@ def _register_routes(app: FastAPI):
             last_run_at=meta.get("last_run_at"),
             scheduler_status=meta.get("scheduler_status", "idle"),
         )
+
+    @app.get("/trace/{model}")
+    async def trace_model(model: str, request: Request):
+        """备件全生命周期可信溯源：上链流转记录 + 全链完整性校验。"""
+        inv_db = request.app.state.inv_db
+        if inv_db is None:
+            from src.warehouse.wms.inventory_db import StockManager
+            inv_db = StockManager()
+
+        trace = await asyncio.to_thread(inv_db.trace, model)
+        if not trace["records"]:
+            raise HTTPException(status_code=404, detail=f"no trace records for {model}")
+        return trace
 
     @app.get("/result/{run_id}", response_model=ScheduleResult)
     async def get_result(run_id: str, request: Request):

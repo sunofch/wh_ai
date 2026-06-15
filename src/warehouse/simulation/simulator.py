@@ -18,6 +18,7 @@ from src.warehouse.models import (
 )
 from src.warehouse.simulation.agv import AGV
 from src.warehouse.fleet.charging import ChargingScheduler
+from src.warehouse.fleet.negotiation import compute_bid, plan_order
 
 if TYPE_CHECKING:
     from src.warehouse.fleet.fleet_manager import FleetManager
@@ -49,8 +50,15 @@ class Simulator:
             tasks = agv_tasks.get(agv.agv_id, [])
             agv.assigned_tasks = tasks
 
+        # 协同博弈：按竞价决定规划顺序（先规划者优先锁定时空资源 = 路权）
+        bids = [
+            compute_bid(agv.agv_id, agv.assigned_tasks, agv.battery)
+            for agv in agvs
+        ]
+        rank = {agv_id: i for i, agv_id in enumerate(plan_order(bids))}
+
         actual_makespan = 0
-        for agv in agvs:
+        for agv in sorted(agvs, key=lambda a: rank[a.agv_id]):
             end_t = self._execute_agv(agv)
             actual_makespan = max(actual_makespan, end_t)
 

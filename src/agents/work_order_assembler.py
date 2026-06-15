@@ -28,6 +28,6 @@ def print_agent_messages(messages: list) -> None:
             try:
                 parsed = json.loads(msg.content)
                 print(f"  {json.dumps(parsed, ensure_ascii=False, indent=2)}")
-            except Exception:
+            except (json.JSONDecodeError, TypeError):
                 print(f"  {msg.content}")
     print(f"{'═' * 50}\n")

@@ -288,6 +288,20 @@ def print_result(result: AgentResult) -> None:
         print("─" * 40)
         return
 
+    # 预警意图：打印库存风险与寿命到期清单
+    if payload.kind == "warning_report":
+        print("【库存预警分析】")
+        print(f"  {payload.summary or '-'}")
+        for w in payload.stock_warnings:
+            print(f"  备件: {w.get('part_name') or '-'}  型号: {w.get('model') or '-'}"
+                  f"  风险: {w.get('risk_level')}  可用: {w.get('available_stock')}"
+                  f"  建议补货: {w.get('recommended_restock_qty')}")
+        for w in payload.life_warnings:
+            print(f"  ⚠ 寿命{w.get('life_risk')}: {w.get('part_name')}({w.get('model')})"
+                  f"  入库: {w.get('inbound_date')}  预期寿命: {w.get('expected_life_weeks')}周")
+        print("─" * 40)
+        return
+
     # 出入库意图：打印工单摘要
     if payload.kind == "work_order":
         order = payload.order

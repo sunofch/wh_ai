@@ -21,6 +21,12 @@ class OptimizationRuntimeConfig:
     model_dir: Path
     raw_data_dir: Path
     processed_data_dir: Path
+    # DQN 超参（.env 未提供时使用默认值）
+    dqn_gamma: float = 0.99
+    dqn_lr: float = 1e-3
+    dqn_epsilon_decay: float = 500.0
+    dqn_episodes: int = 50
+    dqn_target_update_freq: int = 10
 
 
 def get_optimization_config() -> OptimizationRuntimeConfig:
@@ -39,5 +45,10 @@ def get_optimization_config() -> OptimizationRuntimeConfig:
         model_dir=Path(opt.model_dir),
         raw_data_dir=Path(opt.raw_data_dir),
         processed_data_dir=Path(opt.processed_data_dir),
+        dqn_gamma=getattr(opt, "dqn_gamma", 0.99),
+        dqn_lr=getattr(opt, "dqn_lr", 1e-3),
+        dqn_epsilon_decay=getattr(opt, "dqn_epsilon_decay", 500.0),
+        dqn_episodes=getattr(opt, "dqn_episodes", 50),
+        dqn_target_update_freq=getattr(opt, "dqn_target_update_freq", 10),
     )
 
