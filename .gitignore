@@ -12,7 +12,7 @@ CLAUDE.md
 data/vector_db/
 data/graph_db/storage/
 # 如果 models 文件夹下也是运行生成的模型，建议也忽略
-models/
+/models/
 
 # 日志与缓存 
 *.log

@@ -1,8 +1,8 @@
 # wh_graphrag_re
 
-多模态港口备件指令解析、知识检索、库存管理、库存预测预警与 AGV 仓储调度一体化实验项目。
+多模态港口备件指令解析、知识检索、库存管理与 AGV 仓储调度一体化实验项目。
 
-项目把文本、图片、音频指令解析成结构化 `WorkOrder`，再进入 WMS/WES/Fleet/Simulation 调度链路，完成库存预留、批量聚合、AGV 路径规划、仿真执行、指标输出和库存确认/释放。系统同时提供传统 RAG、GraphRAG、FastAPI 异步服务、规则解析降级和不依赖大模型的库存优化测试入口。
+项目把文本、图片、音频指令解析成结构化 `WorkOrder`，再进入 WMS/WES/Fleet/Simulation 调度链路，完成库存预留、批量聚合、AGV 路径规划、仿真执行、指标输出和库存确认/释放。系统同时提供传统 RAG、GraphRAG、FastAPI 异步服务和规则解析降级入口。
 
 ## 目录
 
@@ -12,7 +12,6 @@
 - [运行入口](#运行入口)
 - [REST API](#rest-api)
 - [RAG 与 GraphRAG](#rag-与-graphrag)
-- [库存预测与补货优化](#库存预测与补货优化)
 - [AGV 调度](#agv-调度)
 - [配置](#配置)
 - [测试](#测试)
@@ -26,7 +25,6 @@
 - 多智能体解析：`supervisor -> instruction_agent -> inventory_agent`，路由由 LangGraph Supervisor 编排，指令解析使用 OpenAI 兼容 vLLM，库存建单走确定性 Python 图。
 - 知识增强：传统 RAG 使用 BGE-M3、BM25、RRF 和 reranker；GraphRAG 使用 LlamaIndex PropertyGraphIndex 与 Neo4j。
 - 库存业务：SQLite 库存、库存查询、出入库工单、库存不足补货单、库存预留/确认/释放。
-- 预测预警：规则策略的需求预测、风险分级和补货建议，可选 LSTM/DQN 配置预留。
 - AGV 调度：批量任务聚类、A* 路径缓存、OR-Tools TSP、Regret-2 分配、充电策略、仿真指标和 GIF 动画。
 - API 服务：FastAPI + Redis/Celery；vLLM 在线时异步跑 Agent，离线时用规则解析降级并仍可进入调度队列。
 
@@ -128,10 +126,6 @@ NEO4J_USERNAME=neo4j
 NEO4J_PASSWORD=your-password
 GRAPH_RAG_DEEPSEEK_API_KEY=your-api-key
 
-# 库存预测预警
-OPTIMIZATION_ENABLED=true
-OPTIMIZATION_HORIZON_WEEKS=4
-OPTIMIZATION_POLICY=rule
 ```
 
 完整变量见 [.env.example](./.env.example)。
@@ -144,16 +138,6 @@ OPTIMIZATION_POLICY=rule
 python main_simulation.py
 python main_simulation.py --animate medium_57x47 40
 python main_simulation.py --ablation
-```
-
-不依赖 vLLM 的库存预测预警：
-
-```bash
-python scripts/test_inventory_optimization.py \
-  --part-name 深沟球轴承 \
-  --model 6208-2RS-C3-SKF \
-  --current-stock 5 \
-  --forecast 10,12,8,15
 ```
 
 API 规则解析降级模式：
@@ -190,7 +174,6 @@ python main_api.py
 | `python main_worker.py --concurrency 2 --queues urgent,default` | 启动 Celery Worker |
 | `python restock_inventory.py --qty 100` | 补充 SQLite 库存 |
 | `python test_api_batch.py --animation` | 批量提交 API 指令并下载调度动画 |
-| `python scripts/test_inventory_optimization.py ...` | 库存预测预警与补货建议测试入口 |
 | `python scripts/export_langgraph_graphs.py` | 导出 LangGraph 图结构到 `outputs/langgraph/` |
 | `python scripts/convert_lora_to_vllm.py` | 将 LoRA 权重整理为 vLLM 可加载格式 |
 
@@ -319,32 +302,6 @@ quit              退出
 
 Neo4j 安装、APOC 配置和图谱清理见 [docs/neo4j_setup.md](./docs/neo4j_setup.md)。
 
-## 库存预测与补货优化
-
-预测预警核心在 `src/optimization/`：
-
-| 文件 | 职责 |
-| --- | --- |
-| `pipeline.py` | 计算未来需求、补货点、风险等级和建议补货量 |
-| `warning.py` | 风险分级与补货量取整 |
-| `data_adapter.py` | 基于历史需求的兜底预测 |
-| `schemas.py` | `OptimizationResult` 输出结构 |
-| `config.py` | 从 `.env` 加载运行时配置 |
-| `engine/predictor.py` | LSTM 预测器预留实现 |
-| `engine/optimizer.py` | DQN/规则补货优化器预留实现 |
-
-默认 `OPTIMIZATION_POLICY=rule`，可在无 vLLM、无 Redis、无 Neo4j 的环境下直接运行：
-
-```bash
-python scripts/test_inventory_optimization.py \
-  --part-name 滤芯 \
-  --model HC9600FKS13H \
-  --current-stock 12 \
-  --forecast 8,10,9,11
-```
-
-输出为 JSON，包含 `risk_level`、`recommended_restock_qty`、`reorder_point` 和中文 `report`。Agent 侧可通过库存工具和预测预警模块组合使用。
-
 ## AGV 调度
 
 ### 四层架构
@@ -414,12 +371,6 @@ pytest
 pytest tests/test_smoke.py
 ```
 
-库存优化测试：
-
-```bash
-pytest tests/test_optimization_pipeline.py tests/test_optimization_cli.py
-```
-
 API 批量端到端脚本：
 
 ```bash
@@ -450,16 +401,13 @@ python test_api_batch.py --animation
 ├── docs/                       # 架构、Neo4j、学习笔记和项目文档
 ├── scripts/
 │   ├── convert_lora_to_vllm.py
-│   ├── export_langgraph_graphs.py
-│   └── test_inventory_optimization.py
+│   └── export_langgraph_graphs.py
 ├── tests/                      # pytest 测试
-├── port_inventory_optimization/# 库存优化实验数据与代码
 └── src/
     ├── agents/                 # Supervisor、Instruction、Inventory、AGV Agent
     ├── api/                    # FastAPI、Celery、队列、调度循环
     ├── asr/                    # Whisper ASR
     ├── common/                 # 配置、prompt、reranker、工具函数
-    ├── optimization/           # 库存预测、风险预警和补货建议
     ├── parser/                 # PortInstruction 与规则解析
     ├── rag/                    # Traditional RAG 与 GraphRAG
     ├── vlm/                    # vLLM 服务管理
